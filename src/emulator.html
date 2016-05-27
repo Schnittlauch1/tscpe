@@ -1,0 +1,39 @@
+<html>
+  <head>
+    <style>
+      html, body {
+        background-color: black;
+      }
+    </style>
+    <script>
+      var emulator = require('../bin/emulator.js');
+      var emu = new emulator.Emulator();
+      var screen;
+      var ctx;
+      var buffer;
+      
+      /*emu.gateArray.on('vsync', function() {
+        ctx.putImageData(buffer, 0, 0);
+      });*/
+      
+      function tick() {
+        emu.tick();
+        window.requestAnimationFrame(tick);
+      }
+      
+      emu.on('ready', function() {
+        screen = document.getElementById("screen");
+        ctx = screen.getContext("2d");
+
+        emu.attachScreen(ctx);
+        
+        console.log('Emulator ready');
+        setTimeout(tick, 1000);
+      });
+    </script>
+  </head>
+  <body>
+    <canvas width="640" height="480" id="screen">
+    </canvas>
+  </body>
+</html>

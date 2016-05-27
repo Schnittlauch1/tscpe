@@ -1,0 +1,22 @@
+{
+    "compileOnSave": true,
+    "compilerOptions": {
+        "target": "es6",
+        "module": "commonjs",
+        "declaration": false,
+        "noImplicitAny": false,
+        "removeComments": true,
+        "noLib": false,
+        "outDir": "bin/",
+        "sourceMap": true
+    },
+    "filesGlob": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "lib/**/*.ts",
+        "typings/tsd.d.ts"
+    ],
+    "atom": {
+        "rewriteTsconfig": false
+    }
+}
