@@ -6,10 +6,11 @@
   "scripts": {
     "start": "./node_modules/electron-prebuilt/dist/electron bin/index.js",
     "trace": "./node_modules/electron-prebuilt/dist/electron --no-sandbox --js-flags=\"--trace-hydrogen --trace-phase=Z --trace-deopt --code-comments --hydrogen-track-positions --redirect-code-traces\" bin/index.js",
-    "test": "electron-mocha -s 1 ./bin/tests",
+    "test": "ELECTRON_PATH=./node_modules/electron-prebuilt/dist/electron electron-mocha -s 1 ./bin/tests",
+    "test-trace": "ELECTRON_PATH=./node_modules/electron-prebuilt/dist/electron electron-mocha --no-sandbox --js-flags=\"--trace-hydrogen --trace-phase=Z --trace-deopt --code-comments --hydrogen-track-positions --redirect-code-traces\" -s 1 ./bin/tests",
     "watch": "tsc --watch"
   },
-  "author": "",
+  "author": "Phil Lehmkuhl",
   "license": "GPL-3.0",
   "devDependencies": {
     "chai": "^3.5.0",
