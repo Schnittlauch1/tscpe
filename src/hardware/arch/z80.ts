@@ -54,7 +54,7 @@ export class Z80Cpu
 {
   private memoryBus: Bus = null;
   private io: IoBus = null;
-  private r = new Registers;
+  public reg = new Registers;
   //private decoder: InstructionDecoder = new InstructionDecoder;
   private instruction: Instruction = new Instruction(this);
 
@@ -168,11 +168,7 @@ export class Z80Cpu
       this.halfCarryFlag_ | 
       this.zeroFlag_;
   }
-
-  get reg(): Registers {
-    return this.r;
-  }
-
+  
   public attachBus(bus: Bus) {
     this.memoryBus = bus;
   }
@@ -214,14 +210,14 @@ export class Z80Cpu
   ];
   
   private performFetch(): void {
-    let offset = this.r.PC.uint;
+    let offset = this.reg.PC.uint;
     
     if(this.instruction.address !== offset) {
-      this.instruction.address = this.r.PC.uint;
+      this.instruction.address = this.reg.PC.uint;
       this.instruction.decode();
     }
     
-    this.r.PC.uint = offset + this.instruction.size;
+    this.reg.PC.uint = offset + this.instruction.size;
     
     //InstructionLog.info(this.instruction.address.toString(16).toUpperCase() + ' ' + this.instruction.toString());
 

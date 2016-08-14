@@ -108,7 +108,7 @@ export class Register {
   }
 }
 
-export enum Z80Register {
+export const enum Z80Register {
   AF = 0xA000, WZ = 0xA001, BC = 0xA002, DE = 0xA003, HL = 0xA004, 
   AF_ = 0xA005, WZ_ = 0xA006, BC_ = 0xA007, DE_ = 0xA008, HL_ = 0xA009,
   IX = 0xA00A, IY = 0xA00B, SP = 0xA00C, PC = 0xA00D, I = 0xA00E, R = 0xA00F, MEMPTR = 0xA010,

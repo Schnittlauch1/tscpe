@@ -22,6 +22,7 @@ import {Operations} from './z80-operations';
 import {operations} from './z80-operations';
 import {Z80Cpu} from './z80';
 import {Register} from './z80-register';
+import {Z80Register} from './z80-register';
 import {opcode} from './opcodes';
 import {SpecialOp} from './opcodes';
 import {OpFlags} from './opcodes';
@@ -167,37 +168,140 @@ export class Instruction {
 
   private decodeAddressOperand(op: Operand, val: any[]) {
     for(let i=0; i < val.length; i++) {
-      this.fetchOperand(op, ~~val[i]);
+      this.fetchOperand(op, val[i]);
     }
     
     op.type = OperandClass.Address;
   }
   
-  private decodeValueOperand(op: Operand, val: number) {
-    this.fetchOperand(op, val);
-    //this.normalizeValue(op);
-  }
-  
   private decodeOperand(op: Operand, val: number | number[]) {
-    if(Array.isArray(val)) {
-      this.decodeAddressOperand(op, val);
+    if(typeof(val) === 'object') {
+      this.decodeAddressOperand(op, <number[]>val);
     } else {
-      this.fetchOperand(op, val);
+      this.fetchOperand(op, <number>val);
       //this.decodeValueOperand(op, val);
     }
   }
   
-  private setRegister(op: Operand, regname: string) {
-    op.name = regname;
-    op.register = this.cpu.reg[regname];
+  private setRegister(op: Operand, reg: number) {
+    let register = null;
+    
+    op.name = RegisterNames[reg & 0xFF];
+    
+    switch(reg) {
+      case Z80Register.AF:
+        op.register = this.cpu.reg.AF;
+        break;
+        
+      case Z80Register.AF_:
+        op.register = this.cpu.reg.AF_;
+        break;
+        
+      case Z80Register.WZ:
+        op.register = this.cpu.reg.WZ;
+        break;
+        
+      case Z80Register.BC:
+        op.register = this.cpu.reg.BC;
+        break;
+        
+      case Z80Register.DE:
+        op.register = this.cpu.reg.DE;
+        break;
+        
+      case Z80Register.IX:
+        op.register = this.cpu.reg.IX;
+        break;
+        
+      case Z80Register.HL:
+        op.register = this.cpu.reg.HL;
+        break;
+        
+      case Z80Register.IY:
+        op.register = this.cpu.reg.IY;
+        break;
+        
+      case Z80Register.SP:
+        op.register = this.cpu.reg.SP;
+        break;
+        
+      case Z80Register.PC:
+        op.register = this.cpu.reg.PC;
+        break;
+        
+      case Z80Register.I:
+        op.register = this.cpu.reg.I;
+        break;
+        
+      case Z80Register.R:
+        op.register = this.cpu.reg.R;
+        break;
+        
+      case Z80Register.A:
+        op.register = this.cpu.reg.A;
+        break;
+        
+      case Z80Register.F:
+        op.register = this.cpu.reg.F;
+        break;
+        
+      case Z80Register.B:
+        op.register = this.cpu.reg.B;
+        break;
+        
+      case Z80Register.C:
+        op.register = this.cpu.reg.C;
+        break;
+        
+      case Z80Register.D:
+        op.register = this.cpu.reg.D;
+        break;
+        
+      case Z80Register.E:
+        op.register = this.cpu.reg.E;
+        break;
+        
+      case Z80Register.H:
+        op.register = this.cpu.reg.H;
+        break;
+        
+      case Z80Register.L:
+        op.register = this.cpu.reg.L;
+        break;
+        
+      case Z80Register.IXH:
+        op.register = this.cpu.reg.IXH;
+        break;
+        
+      case Z80Register.IXL:
+        op.register = this.cpu.reg.IXL;
+        break;
+        
+      case Z80Register.IYH:
+        op.register = this.cpu.reg.IYH;
+        break;
+        
+      case Z80Register.IYL:
+        op.register = this.cpu.reg.IYL;
+        break;
+        
+      default:
+        console.warn('Blegh', reg);
+    }
+    
     op.size = op.register.size;
+    /*if(this.cpu.reg[regname] instanceof Register) {
+      op.name = regname;
+      op.register = this.cpu.reg[regname];
+      op.size = op.register.size;
+    }*/
   }
   
   private fetchOperand(op: Operand, decode: number) {
     switch(decode >> 8) {
       case 0xA0:
         op.type = OperandClass.Register;
-        this.setRegister(op, RegisterNames[decode & 0xFF]);
+        this.setRegister(op, decode);
         break;
       
       case 0xE0:
@@ -237,7 +341,7 @@ export class Instruction {
     }
   }
   
-  private fetch() : number[]{
+  private fetch() : (number|number[])[]{
     let prefix: any[] = opcode;
     let decoded: any[] = null;
 

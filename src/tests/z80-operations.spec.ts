@@ -15,7 +15,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/*import chai = require('chai');
+import chai = require('chai');
 import {Z80Cpu} from '../hardware/arch/z80';
 import {operations} from '../hardware/arch/z80-operations';
 import {Instruction} from '../hardware/arch/instruction';
@@ -392,4 +392,4 @@ describe("Instructions", () => {
       cpu.carryFlag.should.be.false;
     });
   });
-});*/
+});

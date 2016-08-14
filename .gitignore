@@ -2,3 +2,4 @@ firmware/
 bin/
 node_modules/
 typings/
+test/
