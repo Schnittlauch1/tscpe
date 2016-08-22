@@ -18,20 +18,20 @@
 'use strict';
 
 import {Operation} from './z80-operations';
-import {Operations} from './z80-operations';
+import {Operations, OperationNames} from './z80-operations';
 import {operations} from './z80-operations';
 import {Z80Cpu} from './z80';
+import {Bus} from '../bus';
 import {Register} from './z80-register';
 import {Z80Register} from './z80-register';
 import {opcode} from './opcodes';
 import {SpecialOp} from './opcodes';
 import {OpFlags} from './opcodes';
 import {FlagNames} from './opcodes';
+import {nop_instruction} from './opcodes';
 import {RegisterNames} from './z80-register';
 
-const CachedByteBuffer = new Uint8Array(1);
-const CachedWordBuffer = new Uint16Array(1);
-const CachedWordBufferBytes = new Uint8Array(CachedWordBuffer.buffer);
+let CachedByteBuffer = 0;
 
 export type OperandType = string | Uint8Array | Uint16Array | number;
 //export type Operand = OperandType | OperandType[];
@@ -72,9 +72,8 @@ export class Operand {
   }
   
   public address(): number {
-    if(this.type !== OperandClass.Address) { return NaN; }
     if(this.register) {
-      let adr = this.register.uint;
+      let adr = this.register.value();
       adr += this.sbyteVal[0];
       
       return adr;
@@ -96,7 +95,7 @@ export class Operand {
         return this.cpu.bus().readMemory(this.address());
         
       case OperandClass.Register:
-        return this.register.uint;
+        return this.register.value();
         
       default:
         return NaN;
@@ -106,11 +105,14 @@ export class Operand {
   public write(val: number) {
     switch(this.type) {
       case OperandClass.Address:
-        this.cpu.bus().writeMemory(this.address(), val & 0xFF);
+        this.cpu.bus().writeMemory(this.address(), val);
         break;
         
       case OperandClass.Register:
-        this.register.uint = val;
+        this.register.setValue(val);
+        break;
+
+      default:
         break;
     }
   }
@@ -146,28 +148,41 @@ export class Operand {
 }
 
 export class Instruction {
-  cpu: Z80Cpu = null;
-  address: number = NaN;
+  private cpu: Z80Cpu = null;
+  private bus: Bus = null;
+  address: number = -1;
+  private offset: number = -1;
   opcode: Operations = null;
-  operation: Operation = null;
+  operation: Operation = operations[Operations.NOP];
   operands: Operand[] = null;
-  cbPrefix: boolean = false;
-  size: number = NaN;
+  private cbPrefix: boolean = false;
+  size: number = 0;
+  private registerCache: Register[] = null;
+  public code = [0, 0, 0, 0];
   
   constructor(cpu: Z80Cpu) {
     this.cpu = cpu;
+    this.bus = cpu.bus();
     this.opArrayCache = [
       [],
       [new Operand(this.cpu)],
       [new Operand(this.cpu), new Operand(this.cpu)],
       [new Operand(this.cpu), new Operand(this.cpu), new Operand(this.cpu)]
     ];
+    this.registerCache = [
+      this.cpu.reg.AF, this.cpu.reg.WZ, this.cpu.reg.BC, this.cpu.reg.DE, this.cpu.reg.HL,
+      this.cpu.reg.AF_, this.cpu.reg.WZ_, this.cpu.reg.BC_, this.cpu.reg.DE_, this.cpu.reg.HL_,
+      this.cpu.reg.IX, this.cpu.reg.IY, this.cpu.reg.SP, this.cpu.reg.PC, this.cpu.reg.I, this.cpu.reg.R, this.cpu.reg.MEMPTR,
+      this.cpu.reg.A, this.cpu.reg.F, this.cpu.reg.W, this.cpu.reg.Z, this.cpu.reg.B, this.cpu.reg.C, this.cpu.reg.D, this.cpu.reg.E, this.cpu.reg.H, this.cpu.reg.L,
+      this.cpu.reg.IXH, this.cpu.reg.IXL, this.cpu.reg.IYH, this.cpu.reg.IYL
+    ];
   }
   
   private opArrayCache: (Operand[])[];
 
   private decodeAddressOperand(op: Operand, val: any[]) {
-    for(let i=0; i < val.length; i++) {
+    let valLength = val.length;
+    for(let i=0; i < valLength; ++i) {
       this.fetchOperand(op, val[i]);
     }
     
@@ -184,206 +199,137 @@ export class Instruction {
   }
   
   private setRegister(op: Operand, reg: number) {
-    let register = null;
-    
-    op.name = RegisterNames[reg & 0xFF];
-    
-    switch(reg) {
-      case Z80Register.AF:
-        op.register = this.cpu.reg.AF;
-        break;
-        
-      case Z80Register.AF_:
-        op.register = this.cpu.reg.AF_;
-        break;
-        
-      case Z80Register.WZ:
-        op.register = this.cpu.reg.WZ;
-        break;
-        
-      case Z80Register.BC:
-        op.register = this.cpu.reg.BC;
-        break;
-        
-      case Z80Register.DE:
-        op.register = this.cpu.reg.DE;
-        break;
-        
-      case Z80Register.IX:
-        op.register = this.cpu.reg.IX;
-        break;
-        
-      case Z80Register.HL:
-        op.register = this.cpu.reg.HL;
-        break;
-        
-      case Z80Register.IY:
-        op.register = this.cpu.reg.IY;
-        break;
-        
-      case Z80Register.SP:
-        op.register = this.cpu.reg.SP;
-        break;
-        
-      case Z80Register.PC:
-        op.register = this.cpu.reg.PC;
-        break;
-        
-      case Z80Register.I:
-        op.register = this.cpu.reg.I;
-        break;
-        
-      case Z80Register.R:
-        op.register = this.cpu.reg.R;
-        break;
-        
-      case Z80Register.A:
-        op.register = this.cpu.reg.A;
-        break;
-        
-      case Z80Register.F:
-        op.register = this.cpu.reg.F;
-        break;
-        
-      case Z80Register.B:
-        op.register = this.cpu.reg.B;
-        break;
-        
-      case Z80Register.C:
-        op.register = this.cpu.reg.C;
-        break;
-        
-      case Z80Register.D:
-        op.register = this.cpu.reg.D;
-        break;
-        
-      case Z80Register.E:
-        op.register = this.cpu.reg.E;
-        break;
-        
-      case Z80Register.H:
-        op.register = this.cpu.reg.H;
-        break;
-        
-      case Z80Register.L:
-        op.register = this.cpu.reg.L;
-        break;
-        
-      case Z80Register.IXH:
-        op.register = this.cpu.reg.IXH;
-        break;
-        
-      case Z80Register.IXL:
-        op.register = this.cpu.reg.IXL;
-        break;
-        
-      case Z80Register.IYH:
-        op.register = this.cpu.reg.IYH;
-        break;
-        
-      case Z80Register.IYL:
-        op.register = this.cpu.reg.IYL;
-        break;
-        
-      default:
-        console.warn('Blegh', reg);
-    }
-    
-    op.size = op.register.size;
-    /*if(this.cpu.reg[regname] instanceof Register) {
-      op.name = regname;
-      op.register = this.cpu.reg[regname];
-      op.size = op.register.size;
-    }*/
+    op.name = RegisterNames[reg - 0xA000];
+    op.register = this.registerCache[reg - 0xA000];
+    op.size = op.register.size();
   }
   
-  private fetchOperand(op: Operand, decode: number) {
-    switch(decode >> 8) {
-      case 0xA0:
-        op.type = OperandClass.Register;
-        this.setRegister(op, decode);
+  private fetchRegOperand(op: Operand, decode: number) {
+    op.type = OperandClass.Register;
+    this.setRegister(op, decode);
+  }
+  
+  private fetchFlagOperand(op: Operand, decode: number) {
+    op.type = OperandClass.Flag;
+    op.name = FlagNames[decode - 0xE000];
+  }
+  
+  private fetchImmediateOperand(op: Operand, decode: number) {
+    op.type = OperandClass.Immediate;
+    
+    switch(decode) {
+      case SpecialOp.Immediate8:
+        if(this.cbPrefix === false) {
+          op.byteVal[0] = this.bus.readMemory(this.address + this.size);
+          ++this.size;
+        } else {
+          op.byteVal[0] = CachedByteBuffer;
+          this.cbPrefix = false;
+        }
+        op.size = 1;
         break;
       
-      case 0xE0:
-        op.type = OperandClass.Flag;
-        op.name = FlagNames[decode & 0xFF];
-        break;
-        
-      case 0xF0:
-        op.type = OperandClass.Immediate;
-        
-        switch(decode) {
-          case SpecialOp.Immediate8:
-            if(this.cbPrefix === false) {
-              op.byteVal[0] = this.cpu.bus().readMemory(this.address + this.size);
-              this.size++;
-            } else {
-              op.byteVal[0] = CachedByteBuffer[0];
-              this.cbPrefix = false;
-            }
-            op.size += 1;
-            break;
-          
-          case SpecialOp.Immediate16:
-            op.byteVal[0] = this.cpu.bus().readMemory(this.address + this.size);
-            op.byteVal[1] = this.cpu.bus().readMemory(this.address + this.size + 1);
-            op.size = 2;
-            this.size += 2;
-            break;
-        }
+      case SpecialOp.Immediate16:
+        op.byteVal[0] = this.bus.readMemory(this.address + this.size);
+        op.byteVal[1] = this.bus.readMemory(this.address + this.size + 1);
+        op.size = 2;
+        this.size += 2;
         break;
 
       default:
-        op.type = OperandClass.Immediate;
-        op.byteVal[0] = decode & 0xFF;
-        op.size = 1;
+        console.error('Unknown operand type');
+        process.exit(-1);
         break;
+    }
+  }
+  
+  private fetchStaticOperand(op: Operand, decode: number) {
+    op.type = OperandClass.Immediate;
+    op.byteVal[0] = decode;
+    op.size = 1;
+  }
+  
+  private fetchOperand(op: Operand, decode: number) {
+    let opPrefix = decode & 0xFF00;
+    switch(opPrefix) {
+      case 0xA000:
+        this.fetchRegOperand(op, decode);
+        break;
+      
+      case 0xE000:
+        this.fetchFlagOperand(op, decode);
+        break;
+        
+      case 0xF000:
+        this.fetchImmediateOperand(op, decode);
+        break;
+
+      default:
+        this.fetchStaticOperand(op, decode);
+        break;
+    }
+  }
+  
+  private isPrefix(opcode: number[]): boolean {
+    return opcode.length === 256;
+  }
+  
+  private fetchFromMemory(opcodes: (number|number[])[], pos: number) : (number|number[]) {
+    let byte = this.bus.readMemory(this.offset);
+    this.code[pos] = byte;
+    
+    ++this.offset;
+    ++this.size;
+    
+    return opcodes[byte];
+  }
+  
+  private fetchCBPrefixImmediate(pos: number) {
+    if(pos === 1) {
+      this.cbPrefix = true;
+      ++this.size;
+      CachedByteBuffer = this.bus.readMemory(this.offset);
+      ++this.offset;
     }
   }
   
   private fetch() : (number|number[])[]{
-    let prefix: any[] = opcode;
-    let decoded: any[] = null;
+    let prefix = opcode;
+    let decoded = nop_instruction;
 
-    this.cbPrefix = false;
     this.size = 0;
-    let offset = this.address;
-    let bus = this.cpu.bus();
+    this.cbPrefix = false;
+    this.offset = this.address;
+    let current = prefix[0];
  
-    for(let i=0; i < 4; i++) {
-      let byte = bus.readMemory(offset);
-      offset++;
-      
-      let current = prefix[byte] || operations[0x0];
-        
-      this.size++;
+    let i = 0;
+    while(true) {     
+      current = this.fetchFromMemory(prefix, i);
 
-      if(current.length === 256) {
+      if(this.isPrefix(current)) {
         prefix = current;
         
-        if(i === 1 && byte === 0xCB) {
-          this.cbPrefix = true;
-          this.size++;
-          CachedByteBuffer[0] = bus.readMemory(offset);
-          offset++;
-        }
+        this.fetchCBPrefixImmediate(i);
       } else{
         decoded = current;
         break;
       }
+      
+      ++i;
     }
 
-    this.opcode = decoded[0];
-    return decoded[1];
+    this.opcode = <number>decoded[0];
+    return <number[]>decoded[1];
   }
 
   public decode(): void {
     const decoded = this.fetch();
 
+    let decodedLength = decoded.length;
     this.operation = operations[this.opcode];
-    this.operands = this.opArrayCache[decoded.length];
+    this.operands = this.opArrayCache[decodedLength];
     
-    for(let i=0; i < decoded.length; i++) {
+    for(let i=0; i < decodedLength; ++i) {
       let op = this.operands[i];
       op.reset();
       this.decodeOperand(op, decoded[i]);
@@ -395,7 +341,7 @@ export class Instruction {
   }
 
   toString(): string {
-    let str = this.opcode.toString();
+    let str = OperationNames[this.opcode];
     if(this.operands.length > 0) {
       str += ' ' + this.formatOperand(this.operands[0]);
     }

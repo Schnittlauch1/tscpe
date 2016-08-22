@@ -19,7 +19,7 @@
 import {Bus} from './bus';
 
 export class Ram implements Bus {
-  private memory: Uint8Array;
+  private memory: Uint8Array = null;
   
   constructor(size: number) {
     this.memory = new Uint8Array(size);
@@ -28,6 +28,10 @@ export class Ram implements Bus {
 
   public readMemory(address: number): number {
     return this.memory[address];
+  }
+  
+  readBlock(address: number, size: number): Uint8Array {
+    return this.memory.slice(address, address + size);
   }
 
   public writeMemory(address: number, value: number) {

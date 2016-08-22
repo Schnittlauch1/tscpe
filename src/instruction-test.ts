@@ -15,18 +15,23 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import chai = require('chai');
-import {Z80Cpu} from '../hardware/arch/z80';
-import {Ram} from '../hardware/ram';
-import {IoPort} from '../hardware/io-port';
-import {IoBus} from '../hardware/io-bus';
+'use strict';
 
 import fs = require('fs');
+
+import {Z80Cpu} from './hardware/arch/z80';
+import {IoPort} from './hardware/io-port';
+import {IoBus} from './hardware/io-bus';
+import {operations} from './hardware/arch/z80-operations';
+import {Instruction} from './hardware/arch/instruction';
+import {Operand} from './hardware/arch/instruction';
+
+import {Ram} from './hardware/ram';
+
 require('source-map-support').install();
 
-chai.should();
 
-/*class EmulationDevice extends IoPort {
+class EmulationDevice extends IoPort {
   public stopEmulation: boolean = false;
 
   constructor() {
@@ -41,16 +46,24 @@ chai.should();
   }
 
   private charBuff: Buffer = new Buffer(1);
+  private latch: boolean = false;
 
   public read(): number {
-    switch(cpu.reg.C.uint) {
+    switch(cpu.reg.C.value()) {
       case 2:
-        this.charBuff[0] = cpu.reg.E.uint;
+        this.charBuff[0] = cpu.reg.E.value();
         process.stdout.write(this.charBuff);
+        /*if(this.charBuff[0] === 10) {
+          if(this.latch) {
+            this.stopEmulation = true;
+            process.exit(0);
+          }
+          this.latch = true;
+        }*/
         break;
 
       case 9:
-        let i=cpu.reg.DE.uint;
+        let i=cpu.reg.DE.value();
         let c=0;
         while(ram.readMemory(i) != 0x24) {
           this.charBuff[0] = ram.readMemory(i);
@@ -59,12 +72,19 @@ chai.should();
           c++;
 
           if(c >= 100) { this.stopEmulation = true; }
-          c.should.be.lessThan(100);
+          
+          /*if(this.charBuff[0] === 10) {
+            if(this.latch) {
+              this.stopEmulation = true;
+              process.exit(0);
+            }
+            this.latch = true;
+          }*/
         }
         break;
 
       default:
-        console.log('Unknown call', cpu.reg.C.uint);
+        console.log('Unknown call', cpu.reg.C.value());
         break;
     }
 
@@ -90,35 +110,28 @@ ram.writeMemory(5, 0xdb);
 ram.writeMemory(6, 0x00);
 ram.writeMemory(7, 0xc9);
 
-describe.skip("Z80 Test Suite", function () {
-  it('Should execute zexdoc.com', function(done) {
-    this.timeout(6 * 60 * 60 * 1000);
+const testProg = fs.readFileSync('test/zexdoc.com');
+for(let i=0; i < testProg.length; i++) {
+  ram.writeMemory(0x100 + i, testProg[i]);
+}
 
-    const testProg = fs.readFileSync('test/zexdoc.com');
-    for(let i=0; i < testProg.length; i++) {
-      ram.writeMemory(0x100 + i, testProg[i]);
-    }
+cpu.reg.PC.setValue(0x100);
 
-    cpu.reg.PC.uint = 0x100;
+let cycles=0;
 
-    let cycles=0;
+/* let cpsInterval = setInterval(() => {
+  console.log('CPS:', cycles);
+  cycles = 0;
+}, 1000);*/
 
-    process.stdout.write("Starting emulation...\n");
-    function tick() {
-      for(let i=0; i < 50000; i++) {
-        cpu.tick(1);
-        if(emulationDevice.stopEmulation) { break; }
-      }
+process.stdout.write("Starting emulation...\n");
 
-      if(emulationDevice.stopEmulation) {
-        process.stdout.write("Emulation finished...\n");
-        done();
-      } else {
-        process.nextTick(tick);
-      }
-    }
+function runEmulation() {
+  while(!emulationDevice.stopEmulation) {
+    cpu.tick(1);
+  } 
+}
 
-    process.nextTick(tick);
-  });
+runEmulation();
 
-});*/
+process.stdout.write("Emulation finished...\n");

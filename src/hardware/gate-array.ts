@@ -215,6 +215,10 @@ export class GateArray
     return this.mapped[address];
   }
 
+  public readBlock(address: number, size: number): Uint8Array {
+    return this.mapped.slice(address, address + size);
+  }
+
   public writeMemory(address: number, value: number) {
     this.ram[address] = value;
     

@@ -60,19 +60,17 @@ class ByteRegister
 };*/
 
 export class Register {
-  private data: Uint16Array;
-  private dataBytes: Uint8Array;
-  private dataAccess: any;
-  public lo: Register;
-  public hi: Register;
-  private bytes: number;
+  private data: Uint16Array = null;
+  private dataBytes: Uint8Array = null;
+  private dataAccess: ArrayBuffer = null;
+  public lo: Register = null;
+  public hi: Register = null;
+  private bytes: number = 0;
 
   constructor(parent: ArrayBuffer = null, offset: number = 0) {
     if(parent) {
       this.data = new Uint16Array(parent);
       this.dataBytes = new Uint8Array(parent, offset);
-      this.lo = null;
-      this.hi = null;
       this.bytes = 1;
       this.dataAccess = this.dataBytes;
     } else {
@@ -85,12 +83,20 @@ export class Register {
     }
   }
   
-  get uint(): number {
+  public value(): number {
     return this.dataAccess[0];
   }
 
-  set uint(val: number) {
+  public setValue(val: number) {
     this.dataAccess[0] = val;
+  }
+  
+  public decr() {
+    this.dataAccess[0]--;
+  }
+  
+  public incr() {
+    this.dataAccess[0]++;
   }
 
   public wideRead(): number {
@@ -103,7 +109,7 @@ export class Register {
     }
   }
 
-  get size(): number {
+  public size(): number {
     return this.bytes;
   }
 }

@@ -56,7 +56,7 @@ export class Z80Cpu
   private io: IoBus = null;
   public reg = new Registers;
   //private decoder: InstructionDecoder = new InstructionDecoder;
-  private instruction: Instruction = new Instruction(this);
+  private instruction: Instruction = null;
 
   private interruptFlag1: boolean = false;
   private interruptFlag2: boolean = false;
@@ -64,13 +64,13 @@ export class Z80Cpu
   private interruptMode: number = 0;
   private interruptRequest: boolean = false;
   
-  private carryFlag_: number = 0;
-  private zeroFlag_: number = 0;
-  private parityFlag_: number = 0;
-  private signFlag_: number = 0;
-  private additionFlag_: number = 0;
-  private halfCarryFlag_: number = 0;
-
+  public carryFlag: boolean = false;
+  public zeroFlag: boolean = false;
+  public parityFlag: boolean = false;
+  public signFlag: boolean = false;
+  public additionFlag: boolean = false;
+  public halfCarryFlag: boolean = false;
+  
   public constructor() {
     super();
   }
@@ -103,74 +103,29 @@ export class Z80Cpu
     this.interruptMode = val;
   }
   
-  get carryFlag(): boolean {
-    return (this.carryFlag_) !== 0;
-  }
-  
-  set carryFlag(val: boolean) {
-    this.carryFlag_ = val ? 0x1 : 0;
-  }
-  
-  get zeroFlag(): boolean {
-    return (this.zeroFlag_) !== 0;
-  }
-  
-  set zeroFlag(val: boolean) {
-    this.zeroFlag_ = val ? 0x40 : 0;
-  }
-  
-  get parityFlag(): boolean {
-    return (this.parityFlag_) !== 0;
-  }
-  
-  set parityFlag(val: boolean) {
-    this.parityFlag_ = val ? 0x4 : 0;
-  }
-  
-  get signFlag(): boolean {
-    return (this.signFlag_) !== 0;
-  }
-  
-  set signFlag(val: boolean) {
-    this.signFlag_ = val ? 0x80 : 0;
-  }
-  
-  get additionFlag(): boolean {
-    return (this.additionFlag_) !== 0;
-  }
-  
-  set additionFlag(val: boolean) {
-    this.additionFlag_ = val ? 0x2 : 0;
-  }
-  
-  get halfCarryFlag(): boolean {
-    return (this.halfCarryFlag_) !== 0;
-  }
-  
-  set halfCarryFlag(val: boolean) {
-    this.halfCarryFlag_ = val ? 0x10 : 0;
-  }
-  
   public readFlags(val: number) {
-    this.carryFlag_ = val & 0x1;
-    this.halfCarryFlag_ = val & 0x10;
-    this.additionFlag_ = val & 0x2;
-    this.signFlag_ = val & 0x80;
-    this.parityFlag_ = val & 0x4;
-    this.zeroFlag_ = val & 0x40;
+    this.carryFlag = (val & 0x1) !== 0;
+    this.additionFlag = (val & 0x2) !== 0;
+    this.parityFlag = (val & 0x4) !== 0;
+    this.halfCarryFlag = (val & 0x10) !== 0;
+    this.zeroFlag = (val & 0x40) !== 0;
+    this.signFlag = (val & 0x80) !== 0;
   }
   
   public writeFlags() {
-    this.reg.F.uint = this.carryFlag_ | 
-      this.additionFlag_ | 
-      this.signFlag_ | 
-      this.parityFlag_ | 
-      this.halfCarryFlag_ | 
-      this.zeroFlag_;
+    this.reg.F.setValue(
+      (this.carryFlag ? 0x1 : 0x0) |
+      (this.additionFlag ? 0x2 : 0x0) |
+      (this.parityFlag ? 0x4 : 0x0) |
+      (this.halfCarryFlag ? 0x10 : 0x0) |
+      (this.zeroFlag ? 0x40 : 0x0) |
+      (this.signFlag ? 0x80 : 0x0)
+    );
   }
   
   public attachBus(bus: Bus) {
     this.memoryBus = bus;
+    this.instruction = new Instruction(this);
   }
 
   public bus(): Bus {
@@ -191,12 +146,12 @@ export class Z80Cpu
     this.interruptFlag1 = false;
     this.interruptFlag2 = false;
   
-    this.reg.SP.uint--;
-    this.bus().writeMemory(this.reg.SP.uint, this.reg.PC.hi.uint);
-    this.reg.SP.uint--;
-    this.bus().writeMemory(this.reg.SP.uint, this.reg.PC.lo.uint);
+    this.reg.SP.setValue(this.reg.SP.value() - 1);
+    this.bus().writeMemory(this.reg.SP.value(), this.reg.PC.hi.value());
+    this.reg.SP.setValue(this.reg.SP.value() - 1);
+    this.bus().writeMemory(this.reg.SP.value(), this.reg.PC.lo.value());
 
-    this.reg.PC.uint = 0x0038;
+    this.reg.PC.setValue(0x0038);
 
     this.emit('INTACK');
     
@@ -205,54 +160,58 @@ export class Z80Cpu
   
   private cpuState: CPUState = CPUState.Execute;
   private stateExec = [
-    this.performExecute,
-    this.performInterruptCheck
+    Z80Cpu.performExecute,
+    Z80Cpu.performInterruptCheck
   ];
   
-  private performFetch(): void {
-    let offset = this.reg.PC.uint;
+  private static performFetch(cpu: Z80Cpu): void {
+    let offset = cpu.reg.PC.value();
     
-    if(this.instruction.address !== offset) {
-      this.instruction.address = this.reg.PC.uint;
-      this.instruction.decode();
+    if(cpu.instruction.address !== offset) {
+      cpu.instruction.address = offset;
+      cpu.instruction.decode();
     }
     
-    this.reg.PC.uint = offset + this.instruction.size;
+    cpu.reg.PC.setValue(offset + cpu.instruction.size);
     
     //InstructionLog.info(this.instruction.address.toString(16).toUpperCase() + ' ' + this.instruction.toString());
 
   }
   
-  private performExecute(): number {
+  private static performExecute(cpu: Z80Cpu): number {
     let waitStates: number = 0;
     
-    this.performFetch();
+    Z80Cpu.performFetch(cpu);
     
-    waitStates = this.instruction.operation(this, this.instruction);
-    this.writeFlags();
+    if(!cpu.instruction.operation) {
+      console.error('Opcode not implemented!');
+      console.error(' > ' + cpu.instruction.toString());
+      process.exit(-1);
+    }
+
+    waitStates = cpu.instruction.operation(cpu, cpu.instruction);
    
-   
-    /*InstructionLog.info('A: ' + this.r.A.uint.toString(16) + 
-                ' F: ' + this.r.F.uint.toString(16) +
-                ' B: ' + this.r.B.uint.toString(16) +
-                ' C: ' + this.r.C.uint.toString(16) +
-                ' D: ' + this.r.D.uint.toString(16) +
-                ' E: ' + this.r.E.uint.toString(16) +
-                ' H: ' + this.r.H.uint.toString(16) +
-                ' L: ' + this.r.L.uint.toString(16) +
-                ' SP: ' + this.r.SP.uint.toString(16)); */
+    /*InstructionLog.info('A: ' + this.reg.A.value().toString(16) + 
+                ' F: ' + this.reg.F.value().toString(16) +
+                ' B: ' + this.reg.B.value().toString(16) +
+                ' C: ' + this.reg.C.value().toString(16) +
+                ' D: ' + this.reg.D.value().toString(16) +
+                ' E: ' + this.reg.E.value().toString(16) +
+                ' H: ' + this.reg.H.value().toString(16) +
+                ' L: ' + this.reg.L.value().toString(16) +
+                ' SP: ' + this.reg.SP.value().toString(16)); */
     
-    if(this.interruptFlag1 === true && this.interruptRequest) {
-      this.cpuState = CPUState.CheckInterrupt;
+    if(cpu.interruptFlag1 === true && cpu.interruptRequest) {
+      cpu.cpuState = CPUState.CheckInterrupt;
     }
 
     return waitStates;
   }
   
-  private performInterruptCheck(): number {
-    this.cpuState = CPUState.Execute;
+  private static performInterruptCheck(cpu: Z80Cpu): number {
+    cpu.cpuState = CPUState.Execute;
     
-    if(this.handleInterrupt()) { return 6; }
+    if(cpu.handleInterrupt()) { return 6; }
 
     return 0;
   }
@@ -260,10 +219,10 @@ export class Z80Cpu
   public tick(cycles: number): number {
     switch(this.cpuState) {
       case CPUState.Execute:
-        return this.performExecute();
+        return Z80Cpu.performExecute(this);
       
       case CPUState.CheckInterrupt:
-        return this.performInterruptCheck();
+        return Z80Cpu.performInterruptCheck(this);
     }
   }
 }

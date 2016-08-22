@@ -47,6 +47,10 @@ export class FileRom extends EventEmitter implements Rom {
   readMemory(address: number): number {
     return this.data[address];
   }
+  
+  readBlock(address: number, size: number): Uint8Array {
+    return null;
+  }
 
   writeMemory(address: number, value: number) {
     //Its a rom! No writing!

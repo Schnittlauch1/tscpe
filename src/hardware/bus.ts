@@ -18,5 +18,6 @@
 
 export interface Bus {
   readMemory(address: number): number;
+  readBlock(address: number, size: number): Uint8Array;
   writeMemory(address: number, value: number);
 }

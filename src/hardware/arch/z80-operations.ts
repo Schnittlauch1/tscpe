@@ -35,8 +35,30 @@ export const enum Operations {
   DJNZ, CALL, RET, RETI, RETN, RST, 
   IN, INI, INIR, IND, INDR, OUT, 
   OUTI, OTIR, OUTD, OTDR, SLL,
+  LD_RLC, LD_RRC, LD_RL, LD_RR, LD_SLA, LD_SRA, LD_SLL, LD_SRL,
+  LD_RES, LD_SET,
+  LD_RN, LD_RN_FLAGS,
+  PUSH_FLAGS, POP_FLAGS,
   OperationsCount
 };
+
+export const OperationNames:string[] = [
+  'NOP', 'LD', 'PUSH', 'POP', 'EX', 'EXX',
+  'LDI', 'LDIR', 'LDD', 'LDDR', 'CPI', 
+  'CPIR', 'CPD', 'CPDR', 'ADD', 'ADC', 'SUB',
+  'SBC', 'AND', 'OR', 'XOR', 'CP', 'INC', 'DEC',
+  'DAA', 'CPL', 'NEG', 'CCF', 'SCF', 'HALT',
+  'DI', 'EI', 'IM', 'RLCA', 'RLA', 'RRA', 'RLC',
+  'RL', 'RRC', 'RRCA', 'RR', 'SLA', 'SRA', 'SRL',
+  'RLD', 'RRD', 'BIT', 'SET', 'RES', 'JP', 'JR',
+  'DJNZ', 'CALL', 'RET', 'RETI', 'RETN', 'RST',
+  'IN', 'INI', 'INIR', 'IND', 'INDR', 'OUT',
+  'OUTI', 'OTIR', 'OUTD', 'OTDR', 'SLL',
+  'LD_RLC', 'LD_RRC', 'LD_RL', 'LD_RR', 'LD_SLA', 'LD_SRA', 'LD_SLL', 'LD_SRL',
+  'LD_RES', 'LD_SET',
+  'LD', 'LD',
+  'PUSH', 'POP'
+]
 
 export type Operation = (cpu: Z80Cpu, instruction: Instruction) => number;
 
@@ -50,47 +72,36 @@ interface CPUVal {
 
 export function add(cpu: Z80Cpu, a: number, b: number, carryIn: boolean): number {
   let result = 0;
-  let c1 = false;
-  let c2 = false;
-  let overflowCarry: boolean;
-  let carry: boolean = carryIn;
-  let signCarry: boolean = false;
+  let carry = 0;
   
-  a = a|0;
-  b = b|0;
+  if(carryIn) { carry = 1; }
   
-  for(let i=0; i < 8; i++) {
-    let aB: boolean = (a & (0x1 << i)) !== 0;
-    let bB: boolean = (b & (0x1 << i)) !== 0;
-    let rB1 = false;
-    let rB2 = false;
-    
-    rB1 = aB !== bB; 
-    rB2 = rB1 !== carry; 
-    
-    if(rB2) { result |= (1 << i); }
-
-    c1 = aB && bB;
-    c2 = rB1 && carry;
-
-    carry = c2 || c1;
-    
-    if(i === 3) { cpu.halfCarryFlag = carry; } 
-    if(i === 6) { signCarry = carry; }
+  result = a + b + carry;
+  
+  cpu.halfCarryFlag = false; 
+  cpu.zeroFlag = false;
+  cpu.carryFlag = false;
+  cpu.parityFlag = false;
+  cpu.signFlag = false;
+  cpu.additionFlag = false;
+  
+  if((result & 0x80) !== 0) { cpu.signFlag = true; }
+  if(((a & 0x0F) + (b & 0x0F) + carry) > 0x0F) {
+    cpu.halfCarryFlag = true;
   }
   
-  cpu.signFlag = (result & 0x80) !== 0;
-  cpu.carryFlag = carry;
-  cpu.parityFlag = carry !== signCarry;
-  cpu.additionFlag = false;
-  cpu.zeroFlag = result === 0;
+  if(result > 0xFF) { cpu.carryFlag = true; }
+  
+  result = result & 0xFF;
+  if(result === 0) { cpu.zeroFlag = true; }
+  cpu.parityFlag = (((result ^ a ^ b) & 0x80) !== 0) !== cpu.carryFlag;
   
   return result;
 }
 
 export function sub(cpu: Z80Cpu, a: number, b: number, carry: boolean): number {
   carry = carry !== true;
-  let res = add(cpu, a, ~b, carry);
+  let res = add(cpu, a, ~b & 0xFF, carry);
   
   cpu.additionFlag = true;
   cpu.halfCarryFlag = !cpu.halfCarryFlag;
@@ -100,13 +111,13 @@ export function sub(cpu: Z80Cpu, a: number, b: number, carry: boolean): number {
 }
 
 export function parity(a: number): boolean {
-  let count=0;
+  let result: number = 0;
   
-  for(let i=0; i < 8; i++) {
-    if((a & (0x1 << i)) !== 0) { count++; }
-  }
+  result = a ^ (a >> 1);
+  result = result ^ (result >> 2);
+  result = result ^ (result >> 4);
   
-  return (count % 2) === 0;
+  return (result & 1) === 0;
 }
 
 export const operations: Operation[] = new Array(Operations.OperationsCount);
@@ -118,36 +129,39 @@ operations[Operations.NOP] = function NOP(cpu, instruction) {
 
 operations[Operations.HALT] = function HALT(cpu, instruction) {
   cpu.iff1 = true;
-  cpu.reg.PC.uint--;
+  cpu.reg.PC.decr();
   return 4;
 };
+
+operations[Operations.LD_RN] = function LD_RN(cpu: Z80Cpu, instruction: Instruction) {
+  instruction.operands[0].write(instruction.operands[1].read());
+  return 4; //Fix Timestamp
+}
 
 operations[Operations.LD] = function LD(cpu, instruction) {
   const srcOp = instruction.operands[1];
   const dstOp = instruction.operands[0];
-  
-  if(dstOp.type === OperandClass.Register && (srcOp.type === OperandClass.Register || srcOp.type === OperandClass.Immediate)) {
-    dstOp.write(srcOp.read());
-  } else if(dstOp.type === OperandClass.Address && srcOp.type === OperandClass.Immediate) {
+
+  if(dstOp.type === OperandClass.Address && srcOp.type === OperandClass.Immediate) {
     let adr = dstOp.address();
     
     cpu.bus().writeMemory(adr, srcOp.byteVal[0]);
-    if(srcOp.size > 1) {
+    if(srcOp.size == 2) {
       cpu.bus().writeMemory(adr + 1, srcOp.byteVal[1]);
     }
   } else if(dstOp.type === OperandClass.Register && srcOp.type === OperandClass.Address) {
     if(dstOp.size == 1) {
       dstOp.write(srcOp.read());
     } else {
-      dstOp.register.lo.uint = cpu.bus().readMemory(srcOp.address());
-      dstOp.register.hi.uint = cpu.bus().readMemory(srcOp.address() + 1);
+      dstOp.register.lo.setValue(cpu.bus().readMemory(srcOp.address()));
+      dstOp.register.hi.setValue(cpu.bus().readMemory(srcOp.address() + 1));
     }
   } else if(dstOp.type === OperandClass.Address && srcOp.type === OperandClass.Register) {
     if(srcOp.size == 1) {
       dstOp.write(srcOp.read());
     } else {
-      cpu.bus().writeMemory(dstOp.address(),      srcOp.register.lo.uint);
-      cpu.bus().writeMemory(dstOp.address() + 1,  srcOp.register.hi.uint);
+      cpu.bus().writeMemory(dstOp.address(),      srcOp.register.lo.value());
+      cpu.bus().writeMemory(dstOp.address() + 1,  srcOp.register.hi.value());
     }
   } else {
     console.log('Not Implemented!');
@@ -155,12 +169,8 @@ operations[Operations.LD] = function LD(cpu, instruction) {
     console.log(srcOp);
   }
   
-  if(dstOp.register === cpu.reg.AF || dstOp.register === cpu.reg.F) {
-    cpu.readFlags(cpu.reg.F.uint);
-  }
-  
   //TODO Correct timings
-  if(this.code && (this.code[0] & 0xC0) === 0xC0) { 
+  if((instruction.code[0] & 0xC0) === 0xC0) { 
     return 4;
   } else {
     return 8;
@@ -186,7 +196,7 @@ operations[Operations.JP] = function JP(cpu, instruction) {
   
   const op = instruction.operands[valOp];
   if(op.type === OperandClass.Register) {
-    cpu.reg.PC.uint = op.address();
+    cpu.reg.PC.setValue(op.address());
     if(op.name === 'HL') {
       return 4;
     } else if(op.name === 'IX') {
@@ -196,7 +206,7 @@ operations[Operations.JP] = function JP(cpu, instruction) {
     console.log(op);
     console.log('!!!!!!!!!! UNSUPPORTED JP');
   } else {
-    cpu.reg.PC.uint = op.address();
+    cpu.reg.PC.setValue(op.address());
     return 10;
   }
 };
@@ -218,7 +228,7 @@ operations[Operations.JR] = function JR(cpu, instruction) {
     valOp++;
   } 
 
-  cpu.reg.PC.uint = instruction.operands[valOp].address();
+  cpu.reg.PC.setValue(instruction.operands[valOp].address());
 
   return 12;
 };
@@ -279,11 +289,24 @@ operations[Operations.INC] = function INC(cpu, instruction) {
       val.write(add(cpu, oldVal, 1, false));
     } else {
       let wReg = val.register;
-      let flags = cpu.reg.F.uint;
       
-      wReg.lo.uint = add(cpu, wReg.lo.uint, 1, false);
-      wReg.hi.uint = add(cpu, wReg.hi.uint, 0, cpu.carryFlag);
-      cpu.readFlags(flags);
+      /*let signFlag = cpu.signFlag;
+      let zeroFlag = cpu.zeroFlag;
+      let parityFlag = cpu.parityFlag;
+      let additionFlag = cpu.additionFlag;
+      let carryFlag = cpu.carryFlag;
+      let halfCarryFlag = cpu.halfCarryFlag;
+      
+      wReg.lo.setValue(add(cpu, wReg.lo.value(), 1, false));
+      wReg.hi.setValue(add(cpu, wReg.hi.value(), 0, cpu.carryFlag));
+      
+      cpu.signFlag = signFlag;
+      cpu.zeroFlag = zeroFlag;
+      cpu.parityFlag = parityFlag;
+      cpu.additionFlag = additionFlag;
+      cpu.carryFlag = carryFlag;
+      cpu.halfCarryFlag = halfCarryFlag;*/
+      wReg.setValue((wReg.value() + 1) & 0xFFFF);
       
       return waitStates;
     }
@@ -313,12 +336,24 @@ operations[Operations.DEC] = function DEC(cpu, instruction) {
       val.write(sub(cpu, oldVal, 1, false));
     } else {
       let wReg = val.register;
-      let flags = cpu.reg.F.uint;
-
-      wReg.lo.uint = sub(cpu, wReg.lo.uint, 1, false);
-      wReg.hi.uint = sub(cpu, wReg.hi.uint, 0, cpu.carryFlag);
       
-      cpu.readFlags(flags);
+      wReg.setValue((wReg.value() - 1) & 0xFFFF);
+      /*let signFlag = cpu.signFlag;
+      let zeroFlag = cpu.zeroFlag;
+      let parityFlag = cpu.parityFlag;
+      let additionFlag = cpu.additionFlag;
+      let carryFlag = cpu.carryFlag;
+      let halfCarryFlag = cpu.halfCarryFlag;
+      
+      wReg.lo.setValue(sub(cpu, wReg.lo.value(), 1, false));
+      wReg.hi.setValue(sub(cpu, wReg.hi.value(), 0, cpu.carryFlag));
+      
+      cpu.signFlag = signFlag;
+      cpu.zeroFlag = zeroFlag;
+      cpu.parityFlag = parityFlag;
+      cpu.additionFlag = additionFlag;
+      cpu.carryFlag = carryFlag;
+      cpu.halfCarryFlag = halfCarryFlag;*/
       
       //TODO Correct timings
       return 4;
@@ -356,25 +391,25 @@ operations[Operations.CALL] = function CALL(cpu, instruction) {
   } 
   
   let val = instruction.operands[valOp];
-  cpu.reg.SP.uint--;
-  cpu.bus().writeMemory(cpu.reg.SP.uint, cpu.reg.PC.hi.uint);
-  cpu.reg.SP.uint--;
-  cpu.bus().writeMemory(cpu.reg.SP.uint, cpu.reg.PC.lo.uint);
+  cpu.reg.SP.decr();
+  cpu.bus().writeMemory(cpu.reg.SP.value(), cpu.reg.PC.hi.value());
+  cpu.reg.SP.decr();
+  cpu.bus().writeMemory(cpu.reg.SP.value(), cpu.reg.PC.lo.value());
 
-  cpu.reg.PC.uint = val.address();
+  cpu.reg.PC.setValue(val.address());
   
   return 17;
 }
 
 operations[Operations.RST] = function RST(cpu, instruction) {
   let val = instruction.operands[0];
-  cpu.reg.SP.uint--;
-  cpu.bus().writeMemory(cpu.reg.SP.uint, cpu.reg.PC.hi.uint);
-  cpu.reg.SP.uint--;
-  cpu.bus().writeMemory(cpu.reg.SP.uint, cpu.reg.PC.lo.uint);
+  cpu.reg.SP.decr();
+  cpu.bus().writeMemory(cpu.reg.SP.value(), cpu.reg.PC.hi.value());
+  cpu.reg.SP.decr();
+  cpu.bus().writeMemory(cpu.reg.SP.value(), cpu.reg.PC.lo.value());
 
-  cpu.reg.PC.lo.uint = val.read();
-  cpu.reg.PC.hi.uint = 0;
+  cpu.reg.PC.lo.setValue(val.read());
+  cpu.reg.PC.hi.setValue(0);
   
   return 11;
 };
@@ -397,10 +432,10 @@ operations[Operations.RET] = function RET(cpu, instruction) {
     waitStates = 11;
   }   
 
-  cpu.reg.PC.lo.uint = cpu.bus().readMemory(cpu.reg.SP.uint);
-  cpu.reg.SP.uint++;
-  cpu.reg.PC.hi.uint = cpu.bus().readMemory(cpu.reg.SP.uint);
-  cpu.reg.SP.uint++;
+  cpu.reg.PC.lo.setValue(cpu.bus().readMemory(cpu.reg.SP.value()));
+  cpu.reg.SP.incr();
+  cpu.reg.PC.hi.setValue(cpu.bus().readMemory(cpu.reg.SP.value()));
+  cpu.reg.SP.incr();
 
   return waitStates;
 }
@@ -409,43 +444,53 @@ operations[Operations.PUSH] = function PUSH(cpu, instruction) {
   let op = instruction.operands[0];
   let reg = op.register;
   
-  cpu.reg.SP.uint--;
-  cpu.bus().writeMemory(cpu.reg.SP.uint, reg.hi.uint);
+  cpu.reg.SP.decr();
+  cpu.bus().writeMemory(cpu.reg.SP.value(), reg.hi.value());
   
-  cpu.reg.SP.uint--;
-  cpu.bus().writeMemory(cpu.reg.SP.uint, reg.lo.uint);
+  cpu.reg.SP.decr();
+  cpu.bus().writeMemory(cpu.reg.SP.value(), reg.lo.value());
   
   return 11;
+}
+
+operations[Operations.PUSH_FLAGS] = function PUSH_FLAGS(cpu, instruction) {
+  cpu.writeFlags();
+  return operations[Operations.PUSH](cpu, instruction);
 }
 
 operations[Operations.POP] = function POP(cpu, instruction) {
   let op = instruction.operands[0];
   let reg = op.register;
   
-  reg.lo.uint = cpu.bus().readMemory(cpu.reg.SP.uint);
-  cpu.reg.SP.uint++;
-  reg.hi.uint = cpu.bus().readMemory(cpu.reg.SP.uint);
-  cpu.reg.SP.uint++;
-  
-  cpu.readFlags(cpu.reg.F.uint);
+  reg.lo.setValue(cpu.bus().readMemory(cpu.reg.SP.value()));
+  cpu.reg.SP.incr();
+  reg.hi.setValue(cpu.bus().readMemory(cpu.reg.SP.value()));
+  cpu.reg.SP.incr();
   
   return 10;
 }
 
+operations[Operations.POP_FLAGS] = function POP_FLAGS(cpu, instruction) {
+  let waitstates = operations[Operations.POP](cpu, instruction);
+  cpu.readFlags(cpu.reg.F.value());
+  
+  return waitstates;
+}
+
 operations[Operations.LDI] = function LDI(cpu, instruction) {
-  let srcAdr = cpu.reg.HL.uint;
-  let dstAdr = cpu.reg.DE.uint;
+  let srcAdr = cpu.reg.HL.value();
+  let dstAdr = cpu.reg.DE.value();
   
   cpu.bus().writeMemory(dstAdr, cpu.bus().readMemory(srcAdr));
 
-  cpu.reg.HL.uint += 1;
-  cpu.reg.DE.uint += 1;
-  cpu.reg.BC.uint -= 1;
+  cpu.reg.HL.incr();
+  cpu.reg.DE.incr();
+  cpu.reg.BC.decr();
   
-  cpu.parityFlag = (cpu.reg.BC.uint -1) !== 0;
+  cpu.parityFlag = cpu.reg.BC.value() !== 0;
   cpu.additionFlag = false;
   cpu.halfCarryFlag = false;
-  
+
   return 16;
 }
 
@@ -454,29 +499,25 @@ operations[Operations.LDIR] = function LDIR(cpu, instruction) {
   
   waitStates = operations[Operations.LDI](cpu, instruction);
   
-  if(cpu.reg.BC.uint !== 0) {
-    cpu.reg.PC.uint -= 2;
+  if(cpu.parityFlag) {
+    cpu.reg.PC.setValue(cpu.reg.PC.value() - 2);
     waitStates += 5;
   }
-  
-  cpu.halfCarryFlag = false;
-  cpu.parityFlag = false;
-  cpu.additionFlag = false;
   
   return waitStates;
 }
 
 operations[Operations.LDD] = function LDD(cpu, instruction) {
-  let srcAdr = cpu.reg.HL.uint;
-  let dstAdr = cpu.reg.DE.uint;
+  let srcAdr = cpu.reg.HL.value();
+  let dstAdr = cpu.reg.DE.value();
   
   cpu.bus().writeMemory(dstAdr, cpu.bus().readMemory(srcAdr));
 
-  cpu.reg.HL.uint -= 1;
-  cpu.reg.DE.uint -= 1;
-  cpu.reg.BC.uint -= 1;
+  cpu.reg.HL.decr();
+  cpu.reg.DE.decr();
+  cpu.reg.BC.decr();
   
-  cpu.parityFlag = (cpu.reg.BC.uint -1) !== 0;
+  cpu.parityFlag = cpu.reg.BC.value() !== 0;
   cpu.additionFlag = false;
   cpu.halfCarryFlag = false;
   
@@ -487,27 +528,25 @@ operations[Operations.LDDR] = function LDDR(cpu, instruction) {
   let waitStates: number;
   
   waitStates = operations[Operations.LDD](cpu, instruction);
-  if(cpu.reg.BC.uint !== 0) {
-    cpu.reg.PC.uint -= 2;
+  if(cpu.parityFlag) {
+    cpu.reg.PC.setValue(cpu.reg.PC.value() - 2);
     waitStates += 5;
   }
-  
-  cpu.halfCarryFlag = false;
-  cpu.parityFlag = false;
-  cpu.additionFlag = false;
   
   return waitStates;
 }
 
 function swapReg(reg1: Register, reg2: Register) {
-  let val = reg1.uint;
-  reg1.uint = reg2.uint;
-  reg2.uint = val;
+  let val = reg1.value();
+  reg1.setValue(reg2.value());
+  reg2.setValue(val);
 }
 
 operations[Operations.EX] = function EX(cpu, instruction) {
-  let op1 = instruction.operands[0];
-  let op2 = instruction.operands[1];
+  const op1 = instruction.operands[0];
+  const op2 = instruction.operands[1];
+  
+  cpu.writeFlags();
   
   if(op1.type === OperandClass.Register && op2.type === OperandClass.Register) {
     swapReg(op1.register, op2.register);
@@ -516,15 +555,15 @@ operations[Operations.EX] = function EX(cpu, instruction) {
     let memL = cpu.bus().readMemory(op1.address());
     let reg = op2.register;
     
-    cpu.bus().writeMemory(op1.address()+1, reg.hi.uint);
-    cpu.bus().writeMemory(op1.address(),   reg.lo.uint);
-    reg.hi.uint = memH;
-    reg.lo.uint = memL;
+    cpu.bus().writeMemory(op1.address()+1, reg.hi.value());
+    cpu.bus().writeMemory(op1.address(),   reg.lo.value());
+    reg.hi.setValue(memH);
+    reg.lo.setValue(memL);
   } else {
     console.log('Wtf?');
   }
   
-  cpu.readFlags(cpu.reg.F.uint);
+  cpu.readFlags(cpu.reg.F.value());
   
   //TODO Correct timings
   return 4;
@@ -540,24 +579,20 @@ operations[Operations.EXX] = function EXX(cpu, instruction) {
 
 operations[Operations.AND] = function AND(cpu, instruction) {
   let dstReg = cpu.reg.A;
-  let oldVal = dstReg.uint;
+  let oldVal = dstReg.value();
   
   let rh = instruction.operands[0];
   let rhVal: number = rh.read();
   
-  dstReg.uint = dstReg.uint & rhVal;
+  dstReg.setValue(dstReg.value() & rhVal);
   
-  cpu.zeroFlag = (dstReg.uint === 0);
-  cpu.signFlag = (dstReg.uint & 0x80) !== 0;
+  cpu.zeroFlag = (dstReg.value() === 0);
+  cpu.signFlag = (dstReg.value() & 0x80) !== 0;
   
   cpu.carryFlag = false;
   cpu.additionFlag = false;
   cpu.halfCarryFlag = true;
-  if((oldVal & 0x80) === (rhVal & 0x80) && (dstReg.uint & 0x80) !== (oldVal & 0x80)) {
-    cpu.parityFlag = true;
-  } else {
-    cpu.parityFlag = false;
-  }
+  cpu.parityFlag = parity(dstReg.value());
   
   //TODO Correct timings
   return 4;
@@ -567,15 +602,15 @@ operations[Operations.XOR] = function XOR(cpu, instruction) {
   let dstReg = cpu.reg.A;
   let rh =  instruction.operands[0];
 
-  dstReg.uint = dstReg.uint ^ rh.read();
+  dstReg.setValue(dstReg.value() ^ rh.read());
   
-  cpu.zeroFlag = dstReg.uint === 0;
-  cpu.signFlag = (dstReg.uint & 0x80) !== 0;
+  cpu.zeroFlag = dstReg.value() === 0;
+  cpu.signFlag = (dstReg.value() & 0x80) !== 0;
   
   cpu.carryFlag = false;
   cpu.additionFlag = false;
   cpu.halfCarryFlag = false;
-  cpu.parityFlag = parity(dstReg.uint);
+  cpu.parityFlag = parity(dstReg.value());
   
   //TODO Correct timings
   return 4;
@@ -583,95 +618,78 @@ operations[Operations.XOR] = function XOR(cpu, instruction) {
 
 operations[Operations.OR] = function OR(cpu, instruction) {
   let dstReg = cpu.reg.A;
-  let oldVal = dstReg.uint;
+  let oldVal = dstReg.value();
   
   let rh = instruction.operands[0];
   let rhVal: number = rh.read();
+  let result = dstReg.value() | rhVal;
   
-  dstReg.uint = dstReg.uint | rhVal;
+  dstReg.setValue(result);
   
-  cpu.zeroFlag = dstReg.uint === 0;
-  cpu.signFlag = (dstReg.uint & 0x80) !== 0;
+  cpu.zeroFlag = result === 0;
+  cpu.signFlag = (result & 0x80) !== 0;
   
   cpu.carryFlag = false;
   cpu.additionFlag = false;
   cpu.halfCarryFlag = false;
-  
-  if((oldVal & 0x80) === (rhVal & 0x80) && (dstReg.uint & 0x80) !== (oldVal & 0x80)) {
-    cpu.parityFlag = true;
-  } else {
-    cpu.parityFlag = false;
-  }
+  cpu.parityFlag = parity(result);
   
   //TODO Correct timings
   return 4;
 }
 
 operations[Operations.ADD] = function ADD(cpu, instruction) {
-  let flags = cpu.reg.F.uint;
+  const dst = instruction.operands[0];
+  const val = instruction.operands[1];
   
-  if(instruction.operands.length === 1) {
-    const op = instruction.operands[0];
-    cpu.reg.A.uint = add(cpu, cpu.reg.A.uint, op.read(), false);
+  if(dst.size === 1) {
+    dst.write(add(cpu, dst.read(), val.read(), false)); 
   } else {
-    const dst = instruction.operands[0];
-    const val = instruction.operands[1];
+    const target = dst.register;
+    const value = val.register;
     
-    if(dst.size === 1) {
-      dst.write(add(cpu, dst.read(), val.read(), false)); 
-    } else {
-      const target = dst.register;
-      const value = val.register;
-      
-      target.lo.uint = add(cpu, target.lo.uint, value.lo.uint, false);
-      target.hi.uint = add(cpu, target.hi.uint, value.hi.uint, cpu.carryFlag);
-      
-      if(dst.name == 'IX' || dst.name == 'IY' || dst.name == 'HL') {
-        let halfCarry = cpu.halfCarryFlag;
-        let carry = cpu.carryFlag;
-        
-        cpu.readFlags(flags);
-        
-        cpu.halfCarryFlag = halfCarry;
-        cpu.carryFlag = carry;
-        cpu.additionFlag = false;
-      }
-    }
+    let signFlag = cpu.signFlag;
+    let zeroFlag = cpu.zeroFlag;
+    let parityFlag = cpu.parityFlag;
+    
+    target.lo.setValue(add(cpu, target.lo.value(), value.lo.value(), false));
+    target.hi.setValue(add(cpu, target.hi.value(), value.hi.value(), cpu.carryFlag));
+    
+    cpu.signFlag = signFlag;
+    cpu.zeroFlag = zeroFlag;
+    cpu.parityFlag = parityFlag;
   }
   
   //TODO Correct timings
   return 4;
 }
 
-operations[Operations.ADC] = function ADC(cpu, instruction) {
-  let flags = cpu.reg.F.uint;
+operations[Operations.ADC] = function ADC(cpu, instruction) {  
+  const dst = instruction.operands[0];
+  const val = instruction.operands[1];
   
-  if(instruction.operands.length === 1) {
-    const op = instruction.operands[0];
-
-    cpu.reg.A.uint = add(cpu, cpu.reg.A.uint, op.read(), cpu.carryFlag);
+  if(dst.size === 1) {
+    dst.write(add(cpu, dst.read(), val.read(), cpu.carryFlag));
   } else {
-    const dst = instruction.operands[0];
-    const val = instruction.operands[1];
+    const target = dst.register;
+    const value = val.register;
     
-    if(dst.size === 1) {
-      dst.write(add(cpu, dst.read(), val.read(), cpu.carryFlag));
-    } else {
-      const target = dst.register;
-      const value = val.register;
-      
-      target.lo.uint = add(cpu, target.lo.uint, value.lo.uint, cpu.carryFlag);
-      target.hi.uint = add(cpu, target.hi.uint, value.hi.uint, cpu.carryFlag);
-      
-      if(dst.name == 'IX' || dst.name == 'IY') {
-        let halfCarry = cpu.halfCarryFlag;
-        let carry = cpu.carryFlag;
-        
-        cpu.readFlags(flags);
-        cpu.halfCarryFlag = halfCarry;
-        cpu.carryFlag = carry;
-      }
-    }
+    /*let signFlag = cpu.signFlag;
+    let zeroFlag = cpu.zeroFlag;
+    let parityFlag = cpu.parityFlag;
+    let additionFlag = cpu.additionFlag;*/
+    
+    target.lo.setValue(add(cpu, target.lo.value(), value.lo.value(), cpu.carryFlag));
+    target.hi.setValue(add(cpu, target.hi.value(), value.hi.value(), cpu.carryFlag));
+    
+    cpu.zeroFlag = (target.value() === 0);
+    
+    /*if(dst.name === 'IX' || dst.name === 'IY') {
+      cpu.signFlag = signFlag;
+      cpu.zeroFlag = zeroFlag;
+      cpu.parityFlag = parityFlag;
+      cpu.additionFlag = additionFlag;
+    }*/
   }
     
   //TODO Correct timings
@@ -679,87 +697,56 @@ operations[Operations.ADC] = function ADC(cpu, instruction) {
 }
 
 operations[Operations.SUB] = function SUB(cpu, instruction) {
-  let flags = cpu.reg.F.uint;
-  
-  if(instruction.operands.length === 1) {
-    const op = instruction.operands[0];
+  const dst = instruction.operands[0];
+  const val = instruction.operands[1];
 
-    cpu.reg.A.uint = sub(cpu, cpu.reg.A.uint, op.read(), false); 
-  } else {
-    const dst = instruction.operands[0];
-    const val = instruction.operands[1];
-    
-    if(dst.size === 1) {
-      dst.write(sub(cpu, dst.read(), val.read(), false));
-    } else {
-      const target = dst.register;
-      const value = val.register;
-      
-      target.lo.uint = sub(cpu, target.lo.uint, value.lo.uint, false);
-      target.hi.uint = sub(cpu, target.hi.uint, value.hi.uint, cpu.carryFlag);
-      
-      if(dst.name == 'IX' || dst.name == 'IY') {
-        let halfCarry = cpu.halfCarryFlag;
-        let carry = cpu.carryFlag;
-        
-        cpu.readFlags(flags);
-        cpu.halfCarryFlag = halfCarry;
-        cpu.carryFlag = carry;
-      }
-    }
-  }
+  dst.write(sub(cpu, dst.read(), val.read(), false));
   
   //TODO Correct timings
   return 4;
 }
 
 operations[Operations.SBC] = function SBC(cpu, instruction) {
-  let flags = cpu.reg.F.uint;
+  const dst = instruction.operands[0];
+  const val = instruction.operands[1];
   
-  if(instruction.operands.length === 1) {
-    const op = instruction.operands[0];
-
-    cpu.reg.A.uint = sub(cpu, cpu.reg.A.uint, op.read(), cpu.carryFlag);
+  if(dst.size === 1) {
+    dst.write(sub(cpu, dst.read(), val.read(), cpu.carryFlag));
   } else {
-    const dst = instruction.operands[0];
-    const val = instruction.operands[1];
+    const target = dst.register;
+    const value = val.register;
     
-    if(dst.size === 1) {
-      dst.write(sub(cpu, dst.read(), val.read(), cpu.carryFlag));
-    } else {
-      const target = dst.register;
-      const value = val.register;
-      
-      target.lo.uint = sub(cpu, target.lo.uint, value.lo.uint, cpu.carryFlag);
-      target.hi.uint = sub(cpu, target.hi.uint, value.hi.uint, cpu.carryFlag);
-      
-      if(dst.name == 'IX' || dst.name == 'IY') {
-        let halfCarry = cpu.halfCarryFlag;
-        let carry = cpu.carryFlag;
-        
-        cpu.readFlags(flags);
-        cpu.halfCarryFlag = halfCarry;
-        cpu.carryFlag = carry;
-      }
-    }
+    /*let signFlag = cpu.signFlag;
+    let zeroFlag = cpu.zeroFlag;
+    let parityFlag = cpu.parityFlag;
+    let additionFlag = cpu.additionFlag;*/
+    
+    target.lo.setValue(sub(cpu, target.lo.value(), value.lo.value(), cpu.carryFlag));
+    target.hi.setValue(sub(cpu, target.hi.value(), value.hi.value(), cpu.carryFlag));
+    
+    cpu.zeroFlag = (target.value() === 0);
+    
+    /*if(dst.name === 'IX' || dst.name === 'IY') {
+      cpu.signFlag = signFlag;
+      cpu.zeroFlag = zeroFlag;
+      cpu.parityFlag = parityFlag;
+      cpu.additionFlag = additionFlag;
+    }*/
   }
-  
+
   //TODO Correct timings
   return 4;
 }
 
 operations[Operations.DJNZ] = function DJNZ(cpu, instruction) {
-  let flags = cpu.reg.F.uint;
   let val = instruction.operands[0];
-  cpu.reg.B.uint = sub(cpu, cpu.reg.B.uint, 1, false);
+  cpu.reg.B.setValue(cpu.reg.B.value() - 1);
   
-  cpu.readFlags(flags);
-  
-  if(cpu.reg.B.uint === 0) { 
+  if(cpu.reg.B.value() === 0) { 
     return 8; 
   }
   
-  cpu.reg.PC.uint = val.address();
+  cpu.reg.PC.setValue(val.address());
     
   return 13;
 }
@@ -768,28 +755,32 @@ operations[Operations.CP] = function CP(cpu, instruction)  {
   let op = instruction.operands[0];
   let cmpVal = op.read();
   
-  sub(cpu, cpu.reg.A.uint, cmpVal, false);
+  sub(cpu, cpu.reg.A.value(), cmpVal, false);
   
   //TODO Correct timings
   return 4;
 }
 
 operations[Operations.CPL] = function CPL(cpu, instruction) {
-  cpu.reg.A.uint = ~cpu.reg.A.uint;
+  cpu.reg.A.setValue(cpu.reg.A.value() ^ 0xFF);
   
   cpu.additionFlag = true;
   cpu.halfCarryFlag = true;
-  
-  //TODO Correct timings
+
   return 4;
 }
 
 operations[Operations.RRCA] = function RRCA(cpu, instruction) {
-  let flags = cpu.reg.F.uint;
+  let signFlag = cpu.signFlag;
+  let zeroFlag = cpu.zeroFlag;
+  let parityFlag = cpu.parityFlag;
+  
   operations[Operations.RRC](cpu, instruction);
   let carry = cpu.carryFlag;
   
-  cpu.readFlags(flags);
+  cpu.signFlag = signFlag;
+  cpu.zeroFlag = zeroFlag;
+  cpu.parityFlag = parityFlag;
   cpu.carryFlag = carry;
   cpu.halfCarryFlag = false;
   cpu.additionFlag = false;
@@ -805,7 +796,7 @@ operations[Operations.RRC] = function RRC(cpu, instruction) {
     op = instruction.operands[0];
     val = op.read();
   } else {
-    val = cpu.reg.A.uint;
+    val = cpu.reg.A.value();
   }
   
   let carry: number;
@@ -817,7 +808,7 @@ operations[Operations.RRC] = function RRC(cpu, instruction) {
   if(op) {
     op.write(val);
   } else {
-    cpu.reg.A.uint = val;
+    cpu.reg.A.setValue(val);
   }
 
   cpu.zeroFlag = val === 0;
@@ -858,13 +849,17 @@ operations[Operations.RLC] = function RLC(cpu, instruction) {
 }
 
 operations[Operations.RLCA] = function RLCA(cpu, instruction) {
-  let flags = cpu.reg.F.uint;
-  
-  cpu.reg.A.uint = RotateLeftCarry(cpu, cpu.reg.A.uint);
+  let signFlag = cpu.signFlag;
+  let zeroFlag = cpu.zeroFlag;
+  let parityFlag = cpu.parityFlag;
+      
+  cpu.reg.A.setValue(RotateLeftCarry(cpu, cpu.reg.A.value()));
   
   let carry = cpu.carryFlag;
   
-  cpu.readFlags(flags);
+  cpu.signFlag = signFlag;
+  cpu.zeroFlag = zeroFlag;
+  cpu.parityFlag = parityFlag;
   cpu.carryFlag = carry;
   cpu.halfCarryFlag = false;
   cpu.additionFlag = false;
@@ -873,11 +868,16 @@ operations[Operations.RLCA] = function RLCA(cpu, instruction) {
 }
 
 operations[Operations.RLA] = function RLA(cpu, instruction) {
-    let flags = cpu.reg.F.uint;
+  let signFlag = cpu.signFlag;
+  let zeroFlag = cpu.zeroFlag;
+  let parityFlag = cpu.parityFlag;
+ 
   operations[Operations.RL](cpu, instruction);
   let carry = cpu.carryFlag;
   
-  cpu.readFlags(flags);
+  cpu.signFlag = signFlag;
+  cpu.zeroFlag = zeroFlag;
+  cpu.parityFlag = parityFlag;
   cpu.carryFlag = carry;
   cpu.halfCarryFlag = false;
   cpu.additionFlag = false;
@@ -893,7 +893,7 @@ operations[Operations.RL] = function RL(cpu, instruction) {
     op = instruction.operands[0];
     val = op.read();
   } else {
-    val = cpu.reg.A.uint;
+    val = cpu.reg.A.value();
   }
   
   let carry: number;
@@ -909,7 +909,7 @@ operations[Operations.RL] = function RL(cpu, instruction) {
   if(op) {
     op.write(val);
   } else {
-    cpu.reg.A.uint = val;
+    cpu.reg.A.setValue(val);
   }
   
     
@@ -925,12 +925,15 @@ operations[Operations.RL] = function RL(cpu, instruction) {
 }
 
 operations[Operations.RRA] = function RRA(cpu, instruction) { 
-  let flags = cpu.reg.F.uint;
+  let signFlag = cpu.signFlag;
+  let zeroFlag = cpu.zeroFlag;
+  let parityFlag = cpu.parityFlag;
+   
   operations[Operations.RR](cpu, instruction);
-  let carry = cpu.carryFlag;
-  
-  cpu.readFlags(flags);
-  cpu.carryFlag = carry;
+
+  cpu.signFlag = signFlag;
+  cpu.zeroFlag = zeroFlag;
+  cpu.parityFlag = parityFlag;
   cpu.halfCarryFlag = false;
   cpu.additionFlag = false;
   
@@ -946,7 +949,7 @@ operations[Operations.RR] = function RR(cpu, instruction) {
     op = instruction.operands[0];
     val = op.read();
   } else {
-    val = cpu.reg.A.uint;
+    val = cpu.reg.A.value();
   }
   
   let carry: number;
@@ -980,7 +983,7 @@ operations[Operations.RR] = function RR(cpu, instruction) {
   if(op) {
     op.write(val);
   } else {
-    cpu.reg.A.uint = val;
+    cpu.reg.A.setValue(val);
   }
 
   cpu.carryFlag = carry !== 0;
@@ -1099,16 +1102,14 @@ operations[Operations.SCF] = function SCF(cpu, instruction) {
   cpu.additionFlag = false;
   cpu.halfCarryFlag = false;
   
-  //TODO Correct timings
   return 4;
 }
 
 operations[Operations.CCF] = function CCF(cpu, instruction) {
-  cpu.halfCarryFlag = cpu.carryFlag;
+  cpu.halfCarryFlag = !cpu.halfCarryFlag;
   cpu.carryFlag = !cpu.carryFlag;
   cpu.additionFlag = false;
   
-  //TODO Correct timings
   return 4;
 }
 
@@ -1146,25 +1147,99 @@ operations[Operations.RES] = function RES(cpu, instruction) {
 }
 
 operations[Operations.DAA] = function DAA(cpu, instruction) {
-  let regVal = cpu.reg.A.uint;
-  let addFlag: boolean = cpu.additionFlag;
-  
+  let regVal = cpu.reg.A.value();
+
   if((regVal & 0xF) > 9 || cpu.halfCarryFlag) {
-    regVal = add(cpu, regVal, 0x6, false);
+    regVal = (regVal + 0x6) & 0xFF; 
+    cpu.halfCarryFlag = true;
+  } else {
+    cpu.halfCarryFlag = false;
   }
   
   if(((regVal & 0xF0) >> 4) > 9 || cpu.carryFlag) {
-    regVal = add(cpu,regVal, 0x60, false);
+    regVal = (regVal + 0x60) & 0xFF;
     cpu.carryFlag = true;
   } else {
     cpu.carryFlag = false;
   }
   
-  cpu.additionFlag = addFlag;
   cpu.parityFlag = parity(regVal);
+  cpu.zeroFlag = regVal === 0;
+  cpu.signFlag = (regVal & 0x80) !== 0;
   
-  cpu.reg.A.uint = regVal;
+  cpu.reg.A.setValue(regVal);
   
+  //TODO Correct timings
+  return 4;
+}
+
+operations[Operations.CPD] = function CPD(cpu, instruction) {
+  let carryBit: boolean = cpu.carryFlag;
+  sub(cpu, cpu.reg.A.value(), cpu.bus().readMemory(cpu.reg.HL.value()), false);
+  
+  cpu.reg.HL.decr();
+  cpu.reg.BC.decr();
+  
+  cpu.carryFlag = carryBit;
+  cpu.parityFlag = cpu.reg.BC.value() !== 0;
+  
+  //TODO Correct timings
+  return 4; 
+}
+
+operations[Operations.CPDR] = function CPDR(cpu, instruction) {
+  operations[Operations.CPD](cpu, instruction);
+  if(cpu.reg.BC.value() !== 0 && !cpu.zeroFlag) {
+    cpu.reg.PC.setValue(cpu.reg.PC.value() - 2);
+  }
+  
+  //TODO Correct timings
+  return 4; 
+}
+
+operations[Operations.CPI] = function CPI(cpu, instruction) {
+  let carryBit: boolean = cpu.carryFlag;
+  sub(cpu, cpu.reg.A.value(), cpu.bus().readMemory(cpu.reg.HL.value()), false);
+  
+  cpu.reg.HL.incr();
+  cpu.reg.BC.decr();
+  
+  cpu.carryFlag = carryBit;
+  cpu.parityFlag = cpu.reg.BC.value() !== 0;
+  
+  //TODO Correct timings
+  return 4; 
+}
+
+operations[Operations.CPIR] = function CPIR(cpu, instruction) {
+  operations[Operations.CPI](cpu, instruction);
+  if(cpu.reg.BC.value() !== 0 && !cpu.zeroFlag) {
+    cpu.reg.PC.setValue(cpu.reg.PC.value() - 2);
+  }
+  
+  //TODO Correct timings
+  return 4; 
+}
+
+operations[Operations.NEG] = function NEG(cpu, instruction) {
+  let val = cpu.reg.A.value();
+  
+  cpu.reg.A.setValue(sub(cpu, 0, val, false));
+
+  return 8;
+}
+
+operations[Operations.RRD] = function RRD(cpu, instruction) {
+  //TODO Correct timings
+  return 4; 
+}
+
+operations[Operations.RLD] = function RLD(cpu, instruction) {
+  //TODO Correct timings
+  return 4; 
+}
+
+operations[Operations.SLL] = function SLL(cpu, instruction) {
   //TODO Correct timings
   return 4;
 }

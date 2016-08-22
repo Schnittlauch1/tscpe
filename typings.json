@@ -1,0 +1,12 @@
+{
+  "name": "tscpe",
+  "dependencies": {},
+  "globalDependencies": {
+    "chai": "registry:dt/chai#3.4.0+20160601211834",
+    "eventemitter3": "registry:dt/eventemitter3#1.1.1+20151208234524",
+    "github-electron": "registry:dt/github-electron#1.3.3+20160822205855",
+    "mocha": "registry:dt/mocha#2.2.5+20160720003353",
+    "node": "registry:dt/node#6.0.0+20160826120425",
+    "winston": "registry:dt/winston#0.0.0+20160417152829"
+  }
+}
