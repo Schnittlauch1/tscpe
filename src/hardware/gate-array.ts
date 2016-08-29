@@ -21,6 +21,7 @@ import {IoPort} from './io-port';
 import {Crtc} from './crtc';
 import {Z80Cpu} from './arch/z80';
 import {IC8255} from './ic-8255';
+import {FDC} from './fdc';
 
 import EventEmitter = require('eventemitter3');
 
@@ -66,13 +67,16 @@ export class GateArray
   implements Bus 
 {
   private io: IoPort = new IoPort;
+  private romIo: IoPort = new IoPort;
   public mapped: Uint8Array = new Uint8Array(64 * 1024);
   public ram: Uint8Array = null;
   public lowerRom: Uint8Array = null;
-  public upperRom: Uint8Array = null;
+  public upperRom: Uint8Array[] = [];
+  private selectedRom: number = 0;
   private crtc: Crtc = null;
   private cpu: Z80Cpu = null;
   public ic8255: IC8255 = null;
+  public fdc: FDC = null;
 
   private lowerRomEnabled: boolean = false;
   private upperRomEnabled: boolean = false;
@@ -124,6 +128,17 @@ export class GateArray
     for(let i=0; i < this.pens.length; i++) {
       this.pens[i] = i;
     }
+
+    this.romIo.on('write', (val) => {
+      let upperEnabled = this.upperRomEnabled;
+      if(upperEnabled) {
+        this.mapUpperRom(false);
+        this.selectedRom = val;
+        this.mapUpperRom(true);
+      } else {
+        this.selectedRom = val;
+      }
+    });
     
     this.io.on('write', (val) => {
       switch(val & 0xC0) {
@@ -159,7 +174,7 @@ export class GateArray
     });
     
     setInterval(() => {
-      console.log('FPS: ' + this.frameCount);
+      //console.log('FPS: ' + this.frameCount);
       this.frameCount = 0;
     }, 1000);
   }
@@ -176,6 +191,10 @@ export class GateArray
 
   get port(): IoPort {
     return this.io.writeonly;
+  }
+  
+  get romBankPort(): IoPort {
+    return this.romIo.writeonly;
   }
   
   public mapLowerRom(map: boolean) {
@@ -195,10 +214,10 @@ export class GateArray
     
     this.upperRomEnabled = map;
     
-    if(map) {
-      this.mapped.set(this.upperRom, 0xC000);
+    if(map && this.upperRom[this.selectedRom]) {
+      this.mapped.set(this.upperRom[this.selectedRom], 0xC000);
     } else {
-      this.mapped.set(this.ram.slice(0xC000, this.upperRom.length), 0xC000);
+      this.mapped.set(this.ram.slice(0xC000, 0xFFFF), 0xC000);
     }
   }
 
@@ -397,6 +416,7 @@ export class GateArray
   
   private triggerSlowTimer() {
     this.crtc.tick(1);
+    this.fdc.tick();
 
     if(!this.crtc.dispen) {
       this.createVideoSignal();

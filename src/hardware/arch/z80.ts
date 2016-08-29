@@ -174,7 +174,7 @@ export class Z80Cpu
     
     cpu.reg.PC.setValue(offset + cpu.instruction.size);
     
-    //InstructionLog.info(this.instruction.address.toString(16).toUpperCase() + ' ' + this.instruction.toString());
+    //InstructionLog.info(cpu.instruction.address.toString(16).toUpperCase() + ' ' + cpu.instruction.toString());
 
   }
   
@@ -191,15 +191,17 @@ export class Z80Cpu
 
     waitStates = cpu.instruction.operation(cpu, cpu.instruction);
    
-    /*InstructionLog.info('A: ' + this.reg.A.value().toString(16) + 
-                ' F: ' + this.reg.F.value().toString(16) +
-                ' B: ' + this.reg.B.value().toString(16) +
-                ' C: ' + this.reg.C.value().toString(16) +
-                ' D: ' + this.reg.D.value().toString(16) +
-                ' E: ' + this.reg.E.value().toString(16) +
-                ' H: ' + this.reg.H.value().toString(16) +
-                ' L: ' + this.reg.L.value().toString(16) +
-                ' SP: ' + this.reg.SP.value().toString(16)); */
+    /*InstructionLog.info('A: ' + cpu.reg.A.value().toString(16) + 
+                ' F: ' + cpu.reg.F.value().toString(16) +
+                ' B: ' + cpu.reg.B.value().toString(16) +
+                ' C: ' + cpu.reg.C.value().toString(16) +
+                ' D: ' + cpu.reg.D.value().toString(16) +
+                ' E: ' + cpu.reg.E.value().toString(16) +
+                ' H: ' + cpu.reg.H.value().toString(16) +
+                ' L: ' + cpu.reg.L.value().toString(16) +
+                ' IX: ' + cpu.reg.IX.value().toString(16) +
+                ' IY: ' + cpu.reg.IY.value().toString(16) +
+                ' SP: ' + cpu.reg.SP.value().toString(16)); */
     
     if(cpu.interruptFlag1 === true && cpu.interruptRequest) {
       cpu.cpuState = CPUState.CheckInterrupt;

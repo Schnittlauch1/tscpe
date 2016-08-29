@@ -255,11 +255,10 @@ operations[Operations.IN] = function IN(cpu, instruction) {
   const dst = instruction.operands[0];
   let affectFlags: boolean = true;
 
-  if(port.type === OperandClass.Register) {
+  if(port.register) {
     cpu.ioBus().select(port.register.wideRead());
   } else {
     cpu.ioBus().select(port.address());
-    
     affectFlags = false;
   }
   dst.write(cpu.ioBus().read());
@@ -582,17 +581,17 @@ operations[Operations.AND] = function AND(cpu, instruction) {
   let oldVal = dstReg.value();
   
   let rh = instruction.operands[0];
-  let rhVal: number = rh.read();
+  let result = dstReg.value() & rh.read();
   
-  dstReg.setValue(dstReg.value() & rhVal);
+  dstReg.setValue(result);
   
-  cpu.zeroFlag = (dstReg.value() === 0);
-  cpu.signFlag = (dstReg.value() & 0x80) !== 0;
+  cpu.zeroFlag = (result === 0);
+  cpu.signFlag = (result & 0x80) !== 0;
   
   cpu.carryFlag = false;
   cpu.additionFlag = false;
   cpu.halfCarryFlag = true;
-  cpu.parityFlag = parity(dstReg.value());
+  cpu.parityFlag = parity(result);
   
   //TODO Correct timings
   return 4;
@@ -601,16 +600,17 @@ operations[Operations.AND] = function AND(cpu, instruction) {
 operations[Operations.XOR] = function XOR(cpu, instruction) {
   let dstReg = cpu.reg.A;
   let rh =  instruction.operands[0];
+  let result = dstReg.value() ^ rh.read();
 
-  dstReg.setValue(dstReg.value() ^ rh.read());
+  dstReg.setValue(result);
   
-  cpu.zeroFlag = dstReg.value() === 0;
-  cpu.signFlag = (dstReg.value() & 0x80) !== 0;
+  cpu.zeroFlag = result === 0;
+  cpu.signFlag = (result & 0x80) !== 0;
   
   cpu.carryFlag = false;
   cpu.additionFlag = false;
   cpu.halfCarryFlag = false;
-  cpu.parityFlag = parity(dstReg.value());
+  cpu.parityFlag = parity(result);
   
   //TODO Correct timings
   return 4;
@@ -618,11 +618,9 @@ operations[Operations.XOR] = function XOR(cpu, instruction) {
 
 operations[Operations.OR] = function OR(cpu, instruction) {
   let dstReg = cpu.reg.A;
-  let oldVal = dstReg.value();
-  
+
   let rh = instruction.operands[0];
-  let rhVal: number = rh.read();
-  let result = dstReg.value() | rhVal;
+  let result = dstReg.value() | rh.read();
   
   dstReg.setValue(result);
   
@@ -762,7 +760,7 @@ operations[Operations.CP] = function CP(cpu, instruction)  {
 }
 
 operations[Operations.CPL] = function CPL(cpu, instruction) {
-  cpu.reg.A.setValue(cpu.reg.A.value() ^ 0xFF);
+  cpu.reg.A.setValue(~cpu.reg.A.value());
   
   cpu.additionFlag = true;
   cpu.halfCarryFlag = true;
@@ -1099,16 +1097,13 @@ operations[Operations.RETN] = function RETN(cpu, instruction) {
 
 operations[Operations.SCF] = function SCF(cpu, instruction) {
   cpu.carryFlag = true;
-  cpu.additionFlag = false;
-  cpu.halfCarryFlag = false;
-  
+
   return 4;
 }
 
 operations[Operations.CCF] = function CCF(cpu, instruction) {
-  cpu.halfCarryFlag = !cpu.halfCarryFlag;
+  cpu.halfCarryFlag = cpu.carryFlag;
   cpu.carryFlag = !cpu.carryFlag;
-  cpu.additionFlag = false;
   
   return 4;
 }
@@ -1148,28 +1143,34 @@ operations[Operations.RES] = function RES(cpu, instruction) {
 
 operations[Operations.DAA] = function DAA(cpu, instruction) {
   let regVal = cpu.reg.A.value();
+  let additionFlag = cpu.additionFlag;
+  let carryFlag = cpu.carryFlag;
+  let factor: number = 0;
 
-  if((regVal & 0xF) > 9 || cpu.halfCarryFlag) {
-    regVal = (regVal + 0x6) & 0xFF; 
-    cpu.halfCarryFlag = true;
-  } else {
-    cpu.halfCarryFlag = false;
-  }
-  
-  if(((regVal & 0xF0) >> 4) > 9 || cpu.carryFlag) {
-    regVal = (regVal + 0x60) & 0xFF;
+  if(regVal > 0x99 || cpu.carryFlag) {
+    factor = 0x60;
     cpu.carryFlag = true;
   } else {
     cpu.carryFlag = false;
   }
-  
+
+  if((regVal & 0x0F) > 9 || cpu.halfCarryFlag) {
+    factor += 0x06;
+  }
+
+  if(!additionFlag) {
+    regVal += factor;
+  } else {
+    regVal -= factor;
+  }
+
   cpu.parityFlag = parity(regVal);
+  cpu.halfCarryFlag = ((cpu.reg.A.value() ^ regVal) & 0x8) !== 0;
   cpu.zeroFlag = regVal === 0;
   cpu.signFlag = (regVal & 0x80) !== 0;
   
   cpu.reg.A.setValue(regVal);
   
-  //TODO Correct timings
   return 4;
 }
 
@@ -1230,16 +1231,19 @@ operations[Operations.NEG] = function NEG(cpu, instruction) {
 }
 
 operations[Operations.RRD] = function RRD(cpu, instruction) {
+  //console.log('RRD not implemented!');
   //TODO Correct timings
   return 4; 
 }
 
 operations[Operations.RLD] = function RLD(cpu, instruction) {
+  //console.log('RLD not implemented!');
   //TODO Correct timings
   return 4; 
 }
 
 operations[Operations.SLL] = function SLL(cpu, instruction) {
+  //console.log('SLL not implemented!');
   //TODO Correct timings
   return 4;
 }

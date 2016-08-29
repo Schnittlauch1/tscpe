@@ -20,6 +20,12 @@ import EventEmitter = require('eventemitter3');
 
 export class IoPort extends EventEmitter {
   private register: number;
+  private readsignal: boolean;
+
+  constructor(readsignal = false) {
+    super();
+    this.readsignal = readsignal;
+  }
 
   get value(): number {
     //this.emit('read', this.register);
@@ -44,7 +50,9 @@ export class IoPort extends EventEmitter {
   }
   
   public read(): number {
-    return this.register;
+    let value = this.register;
+    if(this.readsignal) { this.emit('read'); }
+    return value;
   }
 };
 
@@ -77,6 +85,6 @@ class WriteonlyIoPort extends IoPort {
   }
   
   public read(): number {
-    return undefined;
+    return NaN;
   }
 }

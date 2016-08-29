@@ -51,6 +51,10 @@ export class IoBus {
       }
     }
 
+    if(this.selectedPorts.length > 1) {
+      debugger;
+    }
+
     //this.read();
   }
 

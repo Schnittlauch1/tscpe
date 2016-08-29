@@ -19,6 +19,8 @@ export class Psg {
   private register; Buffer;
   private keyboarMatrix: Uint8Array = new Uint8Array(10);
   private keyboardRow: number = 0;
+  private altKey: boolean = false;
+  private keyOverride = {};
   
   private keyboardMapping = {
     "Enter":      [0x40, 6],
@@ -129,8 +131,24 @@ export class Psg {
   }
   
   private keyDownEvent(e: KeyboardEvent) { 
-    
-    let mapping = this.keyIndex(e['code']);
+    let code = e['code'];
+
+    if(code === 'AltRight' || code === 'AltLeft') {
+      this.altKey = true;
+      e.preventDefault();
+      return;
+    }
+
+    if(this.altKey) {
+      switch(code) {
+        case 'KeyQ':
+          code = '@';
+          this.keyOverride[e['code']] = code; 
+          break;
+      }
+    }
+
+    let mapping = this.keyIndex(code);
     if(mapping[0] === 0) { 
       console.log("Unhandled Key:", e['code']);   
       return; 
@@ -145,7 +163,20 @@ export class Psg {
   }
   
   private keyUpEvent(e: KeyboardEvent) {
-    let mapping = this.keyIndex(e['code']);
+    let code = e['code'];
+
+    if(code === 'AltRight' || code === 'AltLeft') {
+      this.altKey = false;
+      e.preventDefault();
+      return;
+    }
+
+    if(this.keyOverride.hasOwnProperty(code)) {
+      code = this.keyOverride[code];
+      this.keyOverride[code] = undefined;
+    }
+
+    let mapping = this.keyIndex(code);
     if(mapping[0] === 0) { return; }
     
     let mask = (0x1 << mapping[1]) & 0xFF;

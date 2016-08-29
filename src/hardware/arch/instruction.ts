@@ -73,7 +73,7 @@ export class Operand {
   
   public address(): number {
     if(this.register) {
-      let adr = this.register.value();
+      let adr = this.register.wideRead();
       adr += this.sbyteVal[0];
       
       return adr;
