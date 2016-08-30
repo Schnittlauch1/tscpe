@@ -141,8 +141,6 @@ export class Z80Cpu
   }
  
   private handleInterrupt(): boolean {
-    if(this.interruptMode !== 1) { return false; }
-
     this.interruptFlag1 = false;
     this.interruptFlag2 = false;
   
@@ -151,7 +149,18 @@ export class Z80Cpu
     this.reg.SP.setValue(this.reg.SP.value() - 1);
     this.bus().writeMemory(this.reg.SP.value(), this.reg.PC.lo.value());
 
-    this.reg.PC.setValue(0x0038);
+    switch(this.interruptMode) {
+      case 1:
+        this.reg.PC.setValue(0x0038);
+        break;
+
+      case 2:
+        let offset = this.reg.I.value() << 8;
+
+        this.reg.PC.lo.setValue(this.bus().readMemory(offset));
+        this.reg.PC.hi.setValue(this.bus().readMemory(offset+1));
+        break;
+    }
 
     this.emit('INTACK');
     

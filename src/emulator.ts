@@ -96,7 +96,7 @@ export class Emulator
           this.gateArray.reset();
           this.emit('ready');
 
-          this.fdc.loadDisc('test/Boulder Dash (UK) (1984).dsk');
+          this.fdc.loadDisc('test/Bomb Jack (UK) (1986).dsk');
         });
       });
     });

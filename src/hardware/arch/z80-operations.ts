@@ -258,7 +258,7 @@ operations[Operations.IN] = function IN(cpu, instruction) {
   if(port.register) {
     cpu.ioBus().select(port.register.wideRead());
   } else {
-    cpu.ioBus().select(port.address());
+    cpu.ioBus().select(port.address() | (cpu.reg.A.value() << 8));
     affectFlags = false;
   }
   dst.write(cpu.ioBus().read());

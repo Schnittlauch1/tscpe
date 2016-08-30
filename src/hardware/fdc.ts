@@ -85,6 +85,8 @@ export class FDC {
   private icCode: number = 0;
   private seekDelay: number = 0;
   private currentTrack: TrackInfo = null;
+  private currentUnit: number = 0;
+  private currentHead: number = 0;
   
   constructor() {
     console.log('FDC Init');
@@ -107,7 +109,7 @@ export class FDC {
   private readSector(sector: number): Buffer {
     let trackOffset = this.trackNumber * this.trackSize + 0x100;
     let sectorSize = 0x80 << this.currentTrack.sectorSize;
-    let sectorOffset = sector * sectorSize + trackOffset;
+    let sectorOffset = sector * sectorSize + trackOffset + 0x100;
     let data: Buffer = new Buffer(sectorSize);
     fs.readSync(this.diskFile, data, 0, sectorSize, sectorOffset);
 
@@ -150,7 +152,7 @@ export class FDC {
   }
 
   private parseCommand(cmdByte: number) {
-    console.log('RX: ' + cmdByte.toString(16));
+    //console.log('RX: ' + cmdByte.toString(16));
 
     this.fdcBusy = true;
     this.requestFlag = true;
@@ -182,43 +184,60 @@ export class FDC {
         break;
 
       case 0x06:
-        this.busyFlag = true;
-        this.seekDelay = 10;
+        this.currentUnit = this.cmd[1] & 0x3;
+        this.currentHead = this.cmd[1] & 0x4 >> 2;
+        
+        if(this.currentUnit === 0 && this.currentHead === 0) {
+          this.busyFlag = true;
+          this.seekDelay = 1;
 
-        let len = this.cmd[5];
-        let sector: number = this.currentTrack.offsets[this.cmd[4]];
-        let sectorLast: number = this.currentTrack.offsets[this.cmd[6]];
+          let len = this.cmd[5];
+          let trackId: number = this.cmd[2];
+          let sector: number = this.currentTrack.offsets[this.cmd[4]];
+          let sectorLast: number = this.currentTrack.offsets[this.cmd[6]];
 
-        if(len === 0) {
-          len = this.cmd[8];
-        } else {
-          len = 0x80 << len;
-        }
+          //console.log('Read Track ' + trackId);
 
-        for(; sector <= sectorLast; ++sector) {
-          console.log('Read sector ' + this.currentTrack.sector[sector].id+ ' ' + len + ' bytes');
-
-          let data = this.readSector(sector);
-          for(let b=0; b < len; ++b) {
-            this.dataIo.push(data[b]);
+          if(trackId !== this.currentTrack.id) {
+            this.trackNumber = trackId;
+            this.readTrackInfo();
           }
-        }
 
-        this.reportStatus0(0, 0, false, false, 0);
-        this.results.push(this.currentTrack.sector[sectorLast].fdcStatus1);
-        this.results.push(this.currentTrack.sector[sectorLast].fdcStatus2);
-        this.results.push(this.currentTrack.sector[sectorLast].track);
-        this.results.push(0);
-        this.results.push(this.currentTrack.sector[sectorLast].id);
-        this.results.push(this.currentTrack.sector[sectorLast].size);
+          if(len === 0) {
+            len = this.cmd[8];
+          } else {
+            len = 0x80 << len;
+          }
+
+          for(; sector <= sectorLast; ++sector) {
+            //console.log('Read sector ' + this.currentTrack.sector[sector].id+ ' ' + len + ' bytes');
+
+            let data = this.readSector(sector);
+            for(let b=0; b < len; ++b) {
+              this.dataIo.push(data[b]);
+            }
+          }
+
+          this.icCode = 0;
+          this.reportStatus0(0, 0, false, false, 0);
+          this.results.push(this.currentTrack.sector[sectorLast].fdcStatus1);
+          this.results.push(this.currentTrack.sector[sectorLast].fdcStatus2);
+          this.results.push(this.currentTrack.sector[sectorLast].track);
+          this.results.push(0);
+          this.results.push(this.currentTrack.sector[sectorLast].id);
+          this.results.push(this.currentTrack.sector[sectorLast].size);
+        } else {
+          this.icCode = 2;
+          this.reportStatus0(this.currentUnit, this.currentHead, false, false, 2);
+        }
         break;
 
       case 0x07:
-        //We are a virtual drive! Relaibration is instant 8)
+        //We are a virtual drive! Recalibration is instant 8)
         this.busyFlag = true;
         this.trackNumberRequested = 0;
         this.icCode = 0;
-        this.seekDelay = 500;
+        this.seekDelay = 1;
         break;
 
       case 0x08:
@@ -227,28 +246,42 @@ export class FDC {
           this.results.push(this.trackNumber);
         } else {*/
           //this.busyFlag = false;
-          this.trackNumber = this.trackNumberRequested;
+        if(this.icCode === NaN) {
+          this.reportStatus0(this.currentUnit, this.currentHead, true, false, 11);
+          this.icCode = NaN;
+        } else {
+          if(this.currentUnit === 0 && this.currentHead === 0) {
+            this.trackNumber = this.trackNumberRequested;
 
-          this.reportStatus0(0, 0, false, !this.busyFlag, this.icCode);
-          this.results.push(this.trackNumber);
+            this.reportStatus0(0, 0, false, !this.busyFlag, this.icCode);
+            this.results.push(this.trackNumber);
+          } else {
+            this.reportStatus0(this.currentUnit, this.currentHead, true, false, this.icCode);
+            this.results.push(this.trackNumber);
+          }
+        }
         //}
-        debugger;
         break;
 
       case 0x0F:
-        this.busyFlag = true;
-        this.seekDelay = 200;
-        if(this.cmd[2] >= this.tracks) {
-          this.icCode = 1;
-        } else {
-          this.icCode = 0;
-          this.trackNumberRequested = this.cmd[2];
+        this.currentUnit = this.cmd[1] & 0x3;
+        this.currentHead = this.cmd[1] & 0x4 >> 2;
+
+        if(this.currentUnit === 0 && this.currentHead === 0) {
+          this.busyFlag = true;
+          this.seekDelay = 1;
+          if(this.cmd[2] >= this.tracks) {
+            this.icCode = 11;
+          } else {
+            this.icCode = 0;
+            this.trackNumberRequested = this.cmd[2];
+          }
         }
         break;
 
       case 0x0A:
         this.busyFlag = true;
-        this.seekDelay = 10;
+        this.seekDelay = 1;
         this.readTrackInfo();
 
         this.reportStatus0(0, 0, false, true, 0);
@@ -317,10 +350,17 @@ export class FDC {
   private reportStatus0(unit: number, head: number, notReady: boolean, seekEnd: boolean, icCode: number) {
     let status = 0;
     status |= unit & 0x3;
-    status |= head & 0x1 << 2;
-    status |= notReady ? 0x8 : 0x0;
-    status |= seekEnd ? 0x20 : 0x0;
-    status |= icCode & 0x03 << 6;
+    status |= (head & 0x1) << 2;
+    if(unit !== 0 || head !== 0) {
+      status |= notReady ? 0x8 : 0x0;
+      status |= 0x10;
+      status |= seekEnd ? 0x20 : 0x0;
+      status |= (2) << 6;
+    } else {
+      status |= notReady ? 0x8 : 0x0;
+      status |= seekEnd ? 0x20 : 0x0;
+      status |= (icCode & 0x03) << 6;
+    }
 
     //console.log({ unit: unit, head: head, notReady: notReady, seekEnd: seekEnd, icCode: icCode});
 
@@ -345,13 +385,15 @@ export class FDC {
       this.updateStatus();
 
       this.transferring = false;
+
+      this.commandIo.value = 0;
       //this.checkTransferFinished();
     }
   }
 
   private checkTransferFinished() {
     if(this.results.length === 0) {
-      console.log('RDY');
+      //console.log('RDY');
 
       this.fdcBusy = false;
       this.busyFlag = false;
@@ -367,10 +409,10 @@ export class FDC {
   public tick() {
     if(this.executionFlag) {
       if(this.seekDelay) {
-        console.log('SEEKING');
+        //console.log('SEEKING');
         this.seekDelay--;
       } else {
-        if(this.dataIo.length) {
+        if(this.dataIo.length > 0) {
           if(!this.transferring) {
             this.outputFlag = true;
             this.requestFlag = true;
@@ -381,9 +423,10 @@ export class FDC {
 
             this.updateStatus();
           }
-        } else {
+        } else if(!this.transferring) {
           this.busyFlag = false;
           this.executionFlag = false;
+          this.requestFlag = false;
           this.updateStatus();
         }
       }
@@ -393,7 +436,7 @@ export class FDC {
           this.outputFlag = true;
           this.requestFlag = true;
 
-          console.log('TX ' + this.results[0].toString(16));
+          //console.log('TX ' + this.results[0].toString(16));
 
           this.commandIo.value = this.results[0];
           this.results = this.results.slice(1);

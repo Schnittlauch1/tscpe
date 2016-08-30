@@ -289,14 +289,14 @@ export class GateArray
     let pix1 = 0;
     let pix2 = 0;
     
-    pix1 |= (pixelData & 0x2) >> 1;
+    pix1 |= (pixelData & 0x2) << 2;
     pix1 |= (pixelData & 0x8) >> 2;
     pix1 |= (pixelData & 0x20) >> 3;
-    pix1 |= (pixelData & 0x80) >> 4;
-    pix2 |= (pixelData & 0x1);
+    pix1 |= (pixelData & 0x80) >> 7;
+    pix2 |= (pixelData & 0x1) << 3;
     pix2 |= (pixelData & 0x4) >> 1;
     pix2 |= (pixelData & 0x10) >> 2;
-    pix2 |= (pixelData & 0x40) >> 2;
+    pix2 |= (pixelData & 0x40) >> 6;
     
     pix1 = this.getColor(pix1);
     pix2 = this.getColor(pix2);
@@ -430,6 +430,10 @@ export class GateArray
       this.drawPosX = 0;
       this.drawPosY+=2;
       
+      if(this.mode !== this.modeRequested) {
+        console.log('Change mode: ' + this.modeRequested);
+      }
+
       this.mode = this.modeRequested;
       
       this.updateLineCount();

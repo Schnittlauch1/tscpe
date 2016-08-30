@@ -15,8 +15,12 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 export class Psg {
+  private context = new AudioContext();
+  private channel: GainNode[];
+  private tone: OscillatorNode[];
+  private channelState: boolean[] = [false, false, false, false];
   private currentRegister: number;
-  private register; Buffer;
+  private register: Buffer;
   private keyboarMatrix: Uint8Array = new Uint8Array(10);
   private keyboardRow: number = 0;
   private altKey: boolean = false;
@@ -47,7 +51,7 @@ export class Psg {
     "Return":     [0x42, 2],
     "[":          [0x42, 1],
     "Del":        [0x42, 0],
-    ".":          [0x43, 7],
+    "Period":     [0x43, 7],
     "/":          [0x43, 6],
     ":":          [0x43, 5],
     "Semicolon":  [0x43, 4],
@@ -99,10 +103,35 @@ export class Psg {
   }
   
   constructor() {
+    this.tone = [
+      this.context.createOscillator(),
+      this.context.createOscillator(),
+      this.context.createOscillator()
+    ];
+
+    this.channel = [
+      this.context.createGain(),
+      this.context.createGain(),
+      this.context.createGain()
+    ];
+
+    this.initOscillator(this.tone[0]);
+    this.initOscillator(this.tone[1]);
+    this.initOscillator(this.tone[2]);
+
+    this.channel[0].connect(this.context.destination);
+    this.channel[1].connect(this.context.destination);
+    this.channel[2].connect(this.context.destination);
+
     this.register = new Buffer(16); 
     this.register[0xE] = 0xFF;
     
     this.keyboarMatrix.fill(0xFF);
+  }
+
+  private initOscillator(oscillator: OscillatorNode) {
+    oscillator.type = 'square';
+    oscillator.start();
   }
   
   public selectRegister(reg: number) {
@@ -117,9 +146,74 @@ export class Psg {
   public read(): number {
     return this.register[this.currentRegister];
   }
+
+  private updateFrequency(channel: number, hi: number, lo: number) {
+    let val = (hi << 8) | lo;
+    if(!val) { val = 1 };
+    let freq = (4 * 1000 * 1000) / 64 / val;
+    this.tone[channel].frequency.value = freq;
+  }
+
+  private toggleTone(channel: number, toggle: boolean) {
+    if(toggle) {
+      this.tone[channel].connect(this.channel[channel]);
+    } else {
+      this.tone[channel].disconnect();
+    }
+  }
+
+  private updateVolume(channel: number, vol: number) {
+    if((vol & 0x0F) === 0) {
+      this.channel[channel].gain.value = 0;
+    } else {
+      let amp = 10 / Math.pow(Math.sqrt(2), (15 - (vol & 0x0F)));
+      this.channel[channel].gain.value = amp;
+    }
+  }
   
   public write(val: number) {
-    this.register[this.currentRegister];
+    this.register[this.currentRegister] = val;
+
+    switch(this.currentRegister) {
+      case 0x00:
+      case 0x01:
+        this.updateFrequency(0, this.register[0x01], this.register[0x00]);
+        break;
+
+      case 0x02:
+      case 0x03:
+        this.updateFrequency(1, this.register[0x03], this.register[0x02]);
+        break;
+
+      case 0x04:
+      case 0x05:
+        this.updateFrequency(2, this.register[0x05], this.register[0x04]);
+        break;
+
+      case 0x07:
+        let mix = this.register[0x07];
+        if(((mix & 0x1) === 0) !== this.channelState[0]) { this.toggleTone(0, (mix & 0x1) === 0); }
+        if(((mix & 0x2) === 0) !== this.channelState[1]) { this.toggleTone(1, (mix & 0x2) === 0); }
+        if(((mix & 0x4) === 0) !== this.channelState[2]) { this.toggleTone(2, (mix & 0x4) === 0); }
+
+        this.channelState[0] = (mix & 0x1) === 0;
+        this.channelState[1] = (mix & 0x2) === 0;
+        this.channelState[2] = (mix & 0x4) === 0;
+        this.channelState[3] = (mix & 0x8) === 0;
+        break;
+
+      case 0x08:
+        this.updateVolume(0, this.register[0x08]);
+        break;
+
+      case 0x09:
+        this.updateVolume(1, this.register[0x09]);
+        break;
+
+      case 0x0A:
+        this.updateVolume(2, this.register[0x0A]);
+        break;
+    }
   }
   
   private keyIndex(keyCode: string): number[] {
